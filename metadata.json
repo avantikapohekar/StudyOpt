@@ -1,0 +1,6 @@
+{
+  "name": "StudyOS - Academic Planning & Productivity Platform",
+  "description": "An all-in-one academic productivity platform for college students featuring syllabus tracking, timetable planning, focus timer, exams, tasks, notes, habits, and study analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

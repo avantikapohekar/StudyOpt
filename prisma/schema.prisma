@@ -1,0 +1,391 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum TopicStatus {
+  NOT_STARTED
+  LEARNING
+  PRACTICED
+  REVISED
+  MASTERED
+}
+
+enum TopicDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum TaskStatus {
+  INBOX
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum AssignmentStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  GRADED
+  OVERDUE
+}
+
+enum SubtaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum EventType {
+  CLASS
+  LAB
+  STUDY_BLOCK
+  TUTORIAL
+  EXAM
+  OTHER
+}
+
+enum SessionType {
+  POMODORO
+  STOPWATCH
+  CUSTOM
+}
+
+enum GoalPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  SEMESTER
+}
+
+model User {
+  id                   String            @id @default(uuid())
+  email                String            @unique
+  name                 String
+  passwordHash         String            @map("password_hash")
+  college              String?
+  targetDailyMinutes   Int               @default(120) @map("target_daily_minutes")
+  theme                String            @default("dark")
+  timezone             String            @default("UTC")
+  onboardingCompleted  Boolean           @default(false) @map("onboarding_completed")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  semesters            Semester[]
+  tasks                Task[]
+  exams                Exam[]
+  timetableEvents      TimetableEvent[]
+  studySessions        StudySession[]
+  goals                Goal[]
+  habits               Habit[]
+  notes                Note[]
+
+  @@map("users")
+}
+
+model Semester {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  name      String
+  startDate DateTime  @map("start_date")
+  endDate   DateTime  @map("end_date")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjects  Subject[]
+
+  @@index([userId])
+  @@map("semesters")
+}
+
+model Subject {
+  id              String           @id @default(uuid())
+  semesterId      String           @map("semester_id")
+  name            String
+  code            String
+  color           String           @default("#10b981")
+  credits         Int              @default(3)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  semester        Semester         @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  units           Unit[]
+  tasks           Task[]
+  exams           Exam[]
+  timetableEvents TimetableEvent[]
+  studySessions   StudySession[]
+  notes           Note[]
+
+  @@index([semesterId])
+  @@map("subjects")
+}
+
+model Unit {
+  id        String   @id @default(uuid())
+  subjectId String   @map("subject_id")
+  name      String
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topics    Topic[]
+
+  @@index([subjectId])
+  @@map("units")
+}
+
+model Topic {
+  id               String          @id @default(uuid())
+  unitId           String          @map("unit_id")
+  parentTopicId    String?         @map("parent_topic_id")
+  title            String
+  description      String?         @db.Text
+  status           TopicStatus     @default(NOT_STARTED)
+  difficulty       TopicDifficulty @default(MEDIUM)
+  estimatedMinutes Int             @default(60) @map("estimated_minutes")
+  position         Int             @default(0)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  unit             Unit            @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  parentTopic      Topic?          @relation("SubTopics", fields: [parentTopicId], references: [id], onDelete: SetNull)
+  subTopics        Topic[]         @relation("SubTopics")
+  studySessions    StudySession[]
+  notes            Note[]
+
+  @@index([unitId])
+  @@index([parentTopicId])
+  @@map("topics")
+}
+
+model Task {
+  id               String        @id @default(uuid())
+  userId           String        @map("user_id")
+  subjectId        String?       @map("subject_id")
+  title            String
+  description      String?       @db.Text
+  status           TaskStatus    @default(TODO)
+  priority         TaskPriority  @default(MEDIUM)
+  dueAt            DateTime?     @map("due_at")
+  estimatedMinutes Int           @default(30) @map("estimated_minutes")
+  completedAt      DateTime?     @map("completed_at")
+  referenceUrl     String?       @map("reference_url")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject          Subject?      @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  assignment       Assignment?
+  subtasks         Subtask[]
+  studySessions    StudySession[]
+
+  @@index([userId])
+  @@index([subjectId])
+  @@index([status])
+  @@index([dueAt])
+  @@map("tasks")
+}
+
+model Subtask {
+  id          String        @id @default(uuid())
+  taskId      String        @map("task_id")
+  title       String
+  status      SubtaskStatus @default(TODO)
+  position    Int           @default(0)
+  completedAt DateTime?     @map("completed_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  task        Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([status])
+  @@map("subtasks")
+}
+
+model Assignment {
+  id               String           @id @default(uuid())
+  taskId           String           @unique @map("task_id")
+  submissionStatus AssignmentStatus @default(NOT_STARTED) @map("submission_status")
+  submissionMethod String?          @default("Online Portal") @map("submission_method")
+  submissionUrl    String?          @map("submission_url")
+  submittedAt      DateTime?        @map("submitted_at")
+  grade            String?
+  feedback         String?          @db.Text
+  instructions     String?          @db.Text
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  task             Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([submissionStatus])
+  @@map("assignments")
+}
+
+model Exam {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  subjectId       String    @map("subject_id")
+  title           String
+  startsAt        DateTime  @map("starts_at")
+  location        String?
+  examType        String    @default("Final") @map("exam_type")
+  targetScore     Float?    @map("target_score")
+  achievedScore   Float?    @map("achieved_score")
+  confidenceLevel Int       @default(3) @map("confidence_level")
+  pastPapersUrl   String?   @map("past_papers_url")
+  reflectionNotes String?   @db.Text @map("reflection_notes")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject         Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([subjectId])
+  @@index([startsAt])
+  @@map("exams")
+}
+
+model TimetableEvent {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  subjectId      String?   @map("subject_id")
+  title          String
+  eventType      EventType @default(CLASS) @map("event_type")
+  startsAt       DateTime  @map("starts_at")
+  endsAt         DateTime  @map("ends_at")
+  recurrenceRule String?   @map("recurrence_rule")
+  location       String?
+  color          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject        Subject?  @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([subjectId])
+  @@index([startsAt])
+  @@map("timetable_events")
+}
+
+model StudySession {
+  id                String      @id @default(uuid())
+  userId            String      @map("user_id")
+  subjectId         String?     @map("subject_id")
+  topicId           String?     @map("topic_id")
+  taskId            String?     @map("task_id")
+  startedAt         DateTime    @map("started_at")
+  endedAt           DateTime?   @map("ended_at")
+  durationSeconds   Int         @default(0) @map("duration_seconds")
+  sessionType       SessionType @default(POMODORO) @map("session_type")
+  notes             String?     @db.Text
+  distractionsCount Int         @default(0) @map("distractions_count")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject           Subject?    @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  topic             Topic?      @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  task              Task?       @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([subjectId])
+  @@index([startedAt])
+  @@map("study_sessions")
+}
+
+model Goal {
+  id           String     @id @default(uuid())
+  userId       String     @map("user_id")
+  title        String
+  description  String?    @db.Text
+  targetValue  Float      @map("target_value")
+  currentValue Float      @default(0) @map("current_value")
+  unit         String     @default("hours")
+  period       GoalPeriod @default(WEEKLY)
+  startDate    DateTime   @map("start_date")
+  endDate      DateTime   @map("end_date")
+  isCompleted  Boolean    @default(false) @map("is_completed")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("goals")
+}
+
+model Habit {
+  id              String     @id @default(uuid())
+  userId          String     @map("user_id")
+  name            String
+  description     String?    @db.Text
+  frequencyConfig String     @default("[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\",\"Sat\",\"Sun\"]") @map("frequency_config")
+  isArchived      Boolean    @default(false) @map("is_archived")
+  targetPerDay    Int        @default(1) @map("target_per_day")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs            HabitLog[]
+
+  @@index([userId])
+  @@map("habits")
+}
+
+model HabitLog {
+  id          String   @id @default(uuid())
+  habitId     String   @map("habit_id")
+  logDate     String   @map("log_date")
+  completedAt DateTime @default(now()) @map("completed_at")
+  value       Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  habit       Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, logDate])
+  @@index([habitId])
+  @@index([logDate])
+  @@map("habit_logs")
+}
+
+model Note {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  subjectId String?  @map("subject_id")
+  topicId   String?  @map("topic_id")
+  title     String
+  content   String   @db.LongText
+  tags      String?  @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  topic     Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([subjectId])
+  @@index([topicId])
+  @@map("notes")
+}
