@@ -119,7 +119,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, onOpen
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+          <button
+            onClick={() => onNavigate('learning')}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
+          >
+            <BookOpen className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>Learning Hub</span>
+          </button>
           <button
             onClick={() => onNavigate('focus')}
             className="flex items-center gap-2 rounded-lg bg-neutral-100 dark:bg-neutral-800 px-3.5 py-2 text-xs font-semibold text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"

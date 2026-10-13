@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { Note, Subject, Topic } from '../types';
+import { normalizeTags, tagsToInputString } from '../lib/tagUtils';
+import { MarkdownRenderer } from '../components/common/MarkdownRenderer';
 
 export const NotesView: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -67,14 +69,19 @@ export const NotesView: React.FC = () => {
     setEditorContent(note.content);
     setEditorSubjectId(note.subjectId || '');
     setEditorTopicId(note.topicId || '');
-    setEditorTags(note.tagList ? note.tagList.join(', ') : '');
+    setEditorTags(tagsToInputString(note.tagList || note.tags));
     setSaveStatus('saved');
 
     // Fetch topics for this subject
     if (note.subjectId) {
-      api.academics.getSyllabus(note.subjectId).then(res => {
-        setTopics(res.units.flatMap(u => u.topics));
-      });
+      api.academics.getSyllabus(note.subjectId)
+        .then(res => {
+          setTopics(res.units?.flatMap(u => u.topics) || []);
+        })
+        .catch(err => {
+          console.warn('Could not load topics for note subject:', err);
+          setTopics([]);
+        });
     } else {
       setTopics([]);
     }
@@ -90,7 +97,7 @@ export const NotesView: React.FC = () => {
     autosaveTimeoutRef.current = window.setTimeout(async () => {
       setSaveStatus('saving');
       try {
-        const tagList = newTagsStr.split(',').map(t => t.trim()).filter(Boolean);
+        const tagList = normalizeTags(newTagsStr);
         await api.notes.updateNote(selectedNoteId, {
           title: newTitle,
           content: newContent,
@@ -137,9 +144,14 @@ export const NotesView: React.FC = () => {
     setEditorSubjectId(val);
     setEditorTopicId('');
     if (val) {
-      api.academics.getSyllabus(val).then(res => {
-        setTopics(res.units.flatMap(u => u.topics));
-      });
+      api.academics.getSyllabus(val)
+        .then(res => {
+          setTopics(res.units?.flatMap(u => u.topics) || []);
+        })
+        .catch(err => {
+          console.warn('Could not load topics for subject:', err);
+          setTopics([]);
+        });
     } else {
       setTopics([]);
     }
@@ -191,7 +203,7 @@ export const NotesView: React.FC = () => {
   };
 
   // Collect all unique tags
-  const allTags = Array.from(new Set(notes.flatMap(n => n.tagList || [])));
+  const allTags = Array.from(new Set(notes.flatMap(n => normalizeTags(n.tagList || n.tags))));
 
   // Filter notes
   const filteredNotes = notes.filter(n => {
@@ -200,7 +212,7 @@ export const NotesView: React.FC = () => {
       if (!n.title.toLowerCase().includes(q) && !n.content.toLowerCase().includes(q)) return false;
     }
     if (selectedSubjectFilter !== 'all' && n.subjectId !== selectedSubjectFilter) return false;
-    if (selectedTag !== 'all' && !(n.tagList || []).includes(selectedTag)) return false;
+    if (selectedTag !== 'all' && !normalizeTags(n.tagList || n.tags).includes(selectedTag)) return false;
     return true;
   });
 
@@ -431,8 +443,8 @@ export const NotesView: React.FC = () => {
               {/* Editor or Preview body */}
               <div className="flex-1 flex flex-col min-h-[380px]">
                 {isPreviewMode ? (
-                  <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/40 text-neutral-800 dark:text-neutral-200 text-sm prose dark:prose-invert max-w-none flex-1 overflow-y-auto whitespace-pre-wrap font-sans">
-                    {editorContent}
+                  <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/40 text-neutral-800 dark:text-neutral-200 text-sm flex-1 overflow-y-auto">
+                    <MarkdownRenderer content={editorContent} />
                   </div>
                 ) : (
                   <textarea

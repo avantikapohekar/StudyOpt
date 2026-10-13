@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { dbInstance } from '../db.js';
 import { authenticateUser } from '../auth.js';
+import { normalizeTags, serializeTags } from '../tagUtils.js';
 
 export const noteRouter = Router();
 noteRouter.use(authenticateUser);
@@ -23,14 +24,7 @@ noteRouter.get('/notes', (req: Request, res: Response) => {
     notes = notes.filter(n => n.title.toLowerCase().includes(s) || n.content.toLowerCase().includes(s));
   }
   if (tag && typeof tag === 'string') {
-    notes = notes.filter(n => {
-      try {
-        const tagList: string[] = JSON.parse(n.tags || '[]');
-        return tagList.includes(tag);
-      } catch {
-        return false;
-      }
-    });
+    notes = notes.filter(n => normalizeTags(n.tags).includes(tag));
   }
 
   // Sort by updatedAt descending
@@ -39,12 +33,7 @@ noteRouter.get('/notes', (req: Request, res: Response) => {
   const enhancedNotes = notes.map(n => {
     const subject = n.subjectId ? dbInstance.db.subjects.find(s => s.id === n.subjectId) : null;
     const topic = n.topicId ? dbInstance.db.topics.find(t => t.id === n.topicId) : null;
-    let tagList: string[] = [];
-    try {
-      tagList = JSON.parse(n.tags || '[]');
-    } catch {
-      tagList = [];
-    }
+    const tagList = normalizeTags(n.tags);
 
     return {
       ...n,
@@ -73,7 +62,7 @@ noteRouter.get('/notes/:id', (req: Request, res: Response) => {
   return res.json({
     note: {
       ...note,
-      tagList: JSON.parse(note.tags || '[]'),
+      tagList: normalizeTags(note.tags),
       subjectName: subject ? subject.name : null,
       subjectCode: subject ? subject.code : null,
       subjectColor: subject ? subject.color : null,
@@ -95,7 +84,7 @@ noteRouter.post('/notes', (req: Request, res: Response) => {
     topicId: topicId || null,
     title: title ? title.trim() : 'Untitled Note',
     content: content || '',
-    tags: Array.isArray(tags) ? JSON.stringify(tags) : '[]',
+    tags: serializeTags(tags),
     createdAt: now,
     updatedAt: now,
   };
@@ -109,7 +98,7 @@ noteRouter.post('/notes', (req: Request, res: Response) => {
   return res.status(201).json({
     note: {
       ...newNote,
-      tagList: JSON.parse(newNote.tags),
+      tagList: normalizeTags(newNote.tags),
       subjectName: subject ? subject.name : null,
       subjectCode: subject ? subject.code : null,
       subjectColor: subject ? subject.color : null,
@@ -132,12 +121,18 @@ noteRouter.patch('/notes/:id', (req: Request, res: Response) => {
   if (content !== undefined) note.content = content;
   if (subjectId !== undefined) note.subjectId = subjectId || null;
   if (topicId !== undefined) note.topicId = topicId || null;
-  if (tags !== undefined) note.tags = Array.isArray(tags) ? JSON.stringify(tags) : note.tags;
+  if (tags !== undefined) note.tags = serializeTags(tags);
 
   note.updatedAt = new Date().toISOString();
   dbInstance.save();
 
-  return res.json({ note, savedAt: note.updatedAt });
+  return res.json({
+    note: {
+      ...note,
+      tagList: normalizeTags(note.tags),
+    },
+    savedAt: note.updatedAt,
+  });
 });
 
 // Delete note

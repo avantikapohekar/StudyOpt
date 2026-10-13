@@ -13,6 +13,7 @@ interface TopNavProps {
 
 const SECTION_TITLES: Record<NavSection, string> = {
   dashboard: 'Academic Dashboard',
+  learning: 'Learning Hub & Resources',
   planner: 'Planner & Timetable',
   academics: 'Academics & Syllabus Tracker',
   tasks: 'Tasks & Assignment Tracker',

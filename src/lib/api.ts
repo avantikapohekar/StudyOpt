@@ -16,6 +16,11 @@ import {
   Note,
   DashboardSummary,
   AnalyticsOverview,
+  LearningResource,
+  ResourceCollection,
+  FlashcardDeck,
+  Flashcard,
+  GoogleDriveFile,
 } from '../types';
 
 const BASE_URL = '/api/v1';
@@ -143,14 +148,53 @@ export const api = {
         method: 'DELETE',
       }),
 
-    getSyllabus: (subjectId: string) =>
-      request<{
-        subject: Subject;
-        overallProgress: number;
-        totalTopics: number;
-        masteredTopics: number;
-        units: Unit[];
-      }>(`/subjects/${subjectId}/syllabus`),
+    getSyllabus: async (subjectId: string) => {
+      if (!subjectId || subjectId === 'undefined' || subjectId === 'null') {
+        return {
+          subject: {
+            id: '',
+            semesterId: '',
+            name: '',
+            code: '',
+            color: '#10b981',
+            credits: 3,
+            createdAt: '',
+            updatedAt: '',
+          },
+          overallProgress: 0,
+          totalTopics: 0,
+          masteredTopics: 0,
+          units: [],
+        };
+      }
+      try {
+        return await request<{
+          subject: Subject;
+          overallProgress: number;
+          totalTopics: number;
+          masteredTopics: number;
+          units: Unit[];
+        }>(`/subjects/${subjectId}/syllabus`);
+      } catch (err: any) {
+        console.warn(`Syllabus not found or unavailable for subject ${subjectId}:`, err);
+        return {
+          subject: {
+            id: subjectId,
+            semesterId: '',
+            name: 'Subject',
+            code: 'SUB',
+            color: '#10b981',
+            credits: 3,
+            createdAt: '',
+            updatedAt: '',
+          },
+          overallProgress: 0,
+          totalTopics: 0,
+          masteredTopics: 0,
+          units: [],
+        };
+      }
+    },
 
     createUnit: (subjectId: string, data: { name: string; position?: number }) =>
       request<{ unit: Unit }>(`/subjects/${subjectId}/units`, {
@@ -448,4 +492,226 @@ export const api = {
       window.URL.revokeObjectURL(url);
     },
   },
+
+  // Learning Hub Resources & Collections
+  resources: {
+    list: (params: {
+      type?: string;
+      source?: string;
+      subjectId?: string;
+      collectionId?: string;
+      search?: string;
+      tag?: string;
+      favorite?: boolean;
+      pinned?: boolean;
+    } = {}) => {
+      const q = new URLSearchParams();
+      if (params.type) q.append('type', params.type);
+      if (params.source) q.append('source', params.source);
+      if (params.subjectId) q.append('subjectId', params.subjectId);
+      if (params.collectionId) q.append('collectionId', params.collectionId);
+      if (params.search) q.append('search', params.search);
+      if (params.tag) q.append('tag', params.tag);
+      if (params.favorite) q.append('favorite', 'true');
+      if (params.pinned) q.append('pinned', 'true');
+      const queryStr = q.toString() ? `?${q.toString()}` : '';
+      return request<{ resources: LearningResource[] }>(`/resources${queryStr}`);
+    },
+
+    upload: async (formData: FormData): Promise<{ resource: LearningResource }> => {
+      const token = getStoredToken();
+      const response = await fetch(`${BASE_URL}/resources/upload`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || 'File upload failed');
+      }
+      return response.json();
+    },
+
+    createLink: (data: {
+      title: string;
+      url: string;
+      description?: string;
+      type?: string;
+      source?: string;
+      subjectId?: string | null;
+      topicId?: string | null;
+      collectionId?: string | null;
+      tags?: string[];
+      metadata?: any;
+    }) =>
+      request<{ resource: LearningResource }>('/resources/link', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    get: (id: string) => request<{ resource: LearningResource }>(`/resources/${id}`),
+
+    getFileUrl: (id: string) => `${BASE_URL}/resources/${id}/file`,
+
+    update: (id: string, data: Partial<LearningResource>) =>
+      request<{ resource: LearningResource }>(`/resources/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) =>
+      request<{ success: boolean }>(`/resources/${id}`, {
+        method: 'DELETE',
+      }),
+
+    getCollections: () => request<{ collections: ResourceCollection[] }>('/collections'),
+
+    createCollection: (data: {
+      name: string;
+      description?: string;
+      color?: string;
+      icon?: string;
+      subjectId?: string | null;
+    }) =>
+      request<{ collection: ResourceCollection }>('/collections', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    updateCollection: (id: string, data: Partial<ResourceCollection>) =>
+      request<{ collection: ResourceCollection }>(`/collections/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+
+    deleteCollection: (id: string) =>
+      request<{ success: boolean }>(`/collections/${id}`, {
+        method: 'DELETE',
+      }),
+  },
+
+  // Anki-Compatible SM-2 Spaced Repetition Flashcards
+  flashcards: {
+    getDecks: () => request<{ decks: FlashcardDeck[] }>('/flashcards/decks'),
+
+    createDeck: (data: {
+      name: string;
+      description?: string;
+      subjectId?: string | null;
+      topicId?: string | null;
+      tags?: string[];
+    }) =>
+      request<{ deck: FlashcardDeck }>('/flashcards/decks', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    updateDeck: (id: string, data: Omit<Partial<FlashcardDeck>, 'tags'> & { tags?: string[] | string }) =>
+      request<{ deck: FlashcardDeck }>(`/flashcards/decks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+
+    deleteDeck: (id: string) =>
+      request<{ success: boolean }>(`/flashcards/decks/${id}`, {
+        method: 'DELETE',
+      }),
+
+    getDeckCards: (deckId: string) =>
+      request<{ cards: Flashcard[]; deck: FlashcardDeck }>(`/flashcards/decks/${deckId}/cards`),
+
+    createCard: (deckId: string, data: { front: string; back: string; format?: string }) =>
+      request<{ card: Flashcard }>(`/flashcards/decks/${deckId}/cards`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    updateCard: (id: string, data: Partial<Flashcard>) =>
+      request<{ card: Flashcard }>(`/flashcards/cards/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+
+    deleteCard: (id: string) =>
+      request<{ success: boolean }>(`/flashcards/cards/${id}`, {
+        method: 'DELETE',
+      }),
+
+    reviewCard: (cardId: string, rating: 1 | 2 | 3 | 4) =>
+      request<{
+        card: Flashcard;
+        nextIntervalDays: number;
+        nextDueDate: string;
+      }>(`/flashcards/cards/${cardId}/review`, {
+        method: 'POST',
+        body: JSON.stringify({ rating }),
+      }),
+
+    getDueCards: (deckId?: string) =>
+      request<{ dueCards: Flashcard[]; count: number }>(`/flashcards/due${deckId ? `?deckId=${deckId}` : ''}`),
+  },
+
+  // Google Drive & Cloud Integrations
+  integrations: {
+    getDriveStatus: () =>
+      request<{
+        status: 'CONNECTED' | 'DISCONNECTED';
+        connection: { id: string; email: string; googleAccountId: string; connectedAt: string; scopes: string[] } | null;
+      }>('/integrations/google-drive/status'),
+
+    getConnectAuthUrl: () =>
+      request<{
+        authUrl: string;
+        state: string;
+      }>('/integrations/google-drive/connect?format=json'),
+
+    connectWithToken: (data: { accessToken: string; refreshToken?: string; idToken?: string }) =>
+      request<{
+        status: string;
+        connection: { id: string; email: string; googleAccountId: string; connectedAt: string; scopes: string[] };
+        message: string;
+      }>('/integrations/google-drive/connect', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    disconnectDrive: () =>
+      request<{ status: string; message: string }>('/integrations/google-drive/disconnect', {
+        method: 'POST',
+      }),
+
+    getDriveFiles: (params: { search?: string; folderId?: string; mimeFilter?: string; pageToken?: string; pageSize?: number } = {}) => {
+      const q = new URLSearchParams();
+      if (params.search) q.set('search', params.search);
+      if (params.folderId) q.set('folderId', params.folderId);
+      if (params.mimeFilter && params.mimeFilter !== 'all') q.set('mimeFilter', params.mimeFilter);
+      if (params.pageToken) q.set('pageToken', params.pageToken);
+      if (params.pageSize) q.set('pageSize', String(params.pageSize));
+      const query = q.toString() ? `?${q.toString()}` : '';
+      return request<{ files: GoogleDriveFile[]; nextPageToken: string | null }>(`/integrations/google-drive/files${query}`);
+    },
+
+    importDriveFile: (data: {
+      driveFileId: string;
+      title?: string;
+      subjectId?: string | null;
+      topicId?: string | null;
+      collectionId?: string | null;
+      tags?: string[];
+      description?: string;
+    }) =>
+      request<{ resource: LearningResource; resourceLink: any; message: string }>('/integrations/google-drive/import', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    deleteLinkedResource: (id: string) =>
+      request<{ success: boolean; message: string }>(`/integrations/google-drive/resources/${id}`, {
+        method: 'DELETE',
+      }),
+  },
 };
+

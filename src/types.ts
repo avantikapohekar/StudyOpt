@@ -300,3 +300,148 @@ export interface AnalyticsOverview {
   totalRecordedSessions: number;
   averageSessionMinutes: number;
 }
+
+export type ResourceType =
+  | 'DOCUMENT'
+  | 'IMAGE'
+  | 'MARKDOWN'
+  | 'SPREADSHEET'
+  | 'VIDEO'
+  | 'PLAYLIST'
+  | 'COURSE'
+  | 'WEB_LINK'
+  | 'DRIVE_FILE'
+  | 'ANKI_DECK';
+
+export type ResourceSource =
+  | 'LOCAL_UPLOAD'
+  | 'WEB'
+  | 'YOUTUBE'
+  | 'UDEMY'
+  | 'GOOGLE_DRIVE'
+  | 'OBSIDIAN'
+  | 'ANKI';
+
+export interface LearningResource {
+  id: string;
+  userId: string;
+  subjectId?: string | null;
+  topicId?: string | null;
+  collectionId?: string | null;
+  type: ResourceType;
+  source: ResourceSource;
+  title: string;
+  description?: string;
+  url?: string | null;
+  storageKey?: string | null;
+  originalFilename?: string | null;
+  mimeType?: string | null;
+  fileSize?: number;
+  thumbnailUrl?: string | null;
+  tags: string;
+  tagList?: string[];
+  metadata?: string;
+  metadataObj?: Record<string, any>;
+  isPinned: boolean;
+  isFavorite: boolean;
+  lastAccessedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  subjectName?: string | null;
+  subjectCode?: string | null;
+  subjectColor?: string | null;
+  topicTitle?: string | null;
+  collectionName?: string | null;
+  collectionColor?: string | null;
+}
+
+export interface ResourceCollection {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  subjectId?: string | null;
+  resourceCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type FlashcardFormat = 'BASIC' | 'REVERSED' | 'CLOZE';
+export type FlashcardState = 'NEW' | 'LEARNING' | 'REVIEW' | 'RELEARNING';
+
+export interface FlashcardDeck {
+  id: string;
+  userId: string;
+  subjectId?: string | null;
+  topicId?: string | null;
+  name: string;
+  description?: string;
+  tags: string;
+  tagList?: string[];
+  cardCount: number;
+  dueCount?: number;
+  newCount?: number;
+  learningCount?: number;
+  reviewCount?: number;
+  subjectName?: string | null;
+  subjectCode?: string | null;
+  subjectColor?: string | null;
+  topicTitle?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Flashcard {
+  id: string;
+  deckId: string;
+  userId: string;
+  front: string;
+  back: string;
+  format: FlashcardFormat;
+  interval: number;
+  repetitions: number;
+  easeFactor: number;
+  dueDate: string;
+  lastReviewedAt?: string | null;
+  state: FlashcardState;
+  deckName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoogleDriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  webViewLink: string;
+  webContentLink?: string | null;
+  iconLink?: string | null;
+  thumbnailLink?: string | null;
+  modifiedTime: string;
+  createdTime?: string;
+  isFolder?: boolean;
+  resourceType: ResourceType;
+  owners?: Array<{ displayName?: string; emailAddress?: string }>;
+  shared?: boolean;
+}
+
+export interface ResourceLink {
+  id: string;
+  userId: string;
+  provider: string;
+  externalFileId: string;
+  title: string;
+  mimeType?: string | null;
+  webUrl?: string | null;
+  subjectId?: string | null;
+  topicId?: string | null;
+  collectionId?: string | null;
+  tags?: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+

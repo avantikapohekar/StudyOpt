@@ -12,6 +12,9 @@ import { focusRouter } from './server/routes/focusRoutes.js';
 import { habitRouter } from './server/routes/habitRoutes.js';
 import { noteRouter } from './server/routes/noteRoutes.js';
 import { dashboardRouter } from './server/routes/dashboardRoutes.js';
+import { resourceRouter } from './server/routes/resourceRoutes.js';
+import { flashcardRouter } from './server/routes/flashcardRoutes.js';
+import { integrationRouter } from './server/routes/integrationRoutes.js';
 
 dotenv.config();
 
@@ -50,6 +53,9 @@ app.use(`${API_PREFIX}`, focusRouter);
 app.use(`${API_PREFIX}`, habitRouter);
 app.use(`${API_PREFIX}`, noteRouter);
 app.use(`${API_PREFIX}`, dashboardRouter);
+app.use(`${API_PREFIX}`, resourceRouter);
+app.use(`${API_PREFIX}`, flashcardRouter);
+app.use(`${API_PREFIX}`, integrationRouter);
 
 // Global API error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

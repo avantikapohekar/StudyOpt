@@ -72,6 +72,9 @@ export const ExamsView: React.FC = () => {
     d.setDate(d.getDate() + 14);
     d.setHours(14, 0, 0, 0);
     setStartsAt(d.toISOString().slice(0, 16));
+    if (subjects.length > 0) {
+      setSubjectId(subjects[0].id);
+    }
     setIsCreateModalOpen(true);
   };
 
@@ -383,11 +386,15 @@ export const ExamsView: React.FC = () => {
                     onChange={e => setSubjectId(e.target.value)}
                     className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-1.5 text-xs text-neutral-900 dark:text-neutral-100"
                   >
-                    {subjects.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.code}
-                      </option>
-                    ))}
+                    {subjects.length === 0 ? (
+                      <option value="">No subjects created</option>
+                    ) : (
+                      subjects.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.code} - {s.name}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div>

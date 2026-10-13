@@ -49,8 +49,11 @@ export const FocusTimerView: React.FC = () => {
       ]);
       setSessions(sessionsRes.sessions);
       setSubjects(subsRes.subjects);
-      if (subsRes.subjects.length > 0 && !selectedSubjectId) {
+      const exists = subsRes.subjects.some(s => s.id === selectedSubjectId);
+      if ((!selectedSubjectId || !exists) && subsRes.subjects.length > 0) {
         setSelectedSubjectId(subsRes.subjects[0].id);
+      } else if (subsRes.subjects.length === 0) {
+        setSelectedSubjectId('');
       }
     } catch (err) {
       console.error('Failed to load focus sessions:', err);
@@ -95,13 +98,24 @@ export const FocusTimerView: React.FC = () => {
   // When subject changes, fetch topics
   useEffect(() => {
     if (selectedSubjectId) {
-      api.academics.getSyllabus(selectedSubjectId).then(res => {
-        const allTopics = res.units.flatMap(u => u.topics);
-        setTopics(allTopics);
-        if (allTopics.length > 0) {
-          setSelectedTopicId(allTopics[0].id);
-        }
-      });
+      api.academics.getSyllabus(selectedSubjectId)
+        .then(res => {
+          const allTopics = res.units?.flatMap(u => u.topics) || [];
+          setTopics(allTopics);
+          if (allTopics.length > 0) {
+            setSelectedTopicId(allTopics[0].id);
+          } else {
+            setSelectedTopicId('');
+          }
+        })
+        .catch(err => {
+          console.warn('Could not load topics for focus timer:', err);
+          setTopics([]);
+          setSelectedTopicId('');
+        });
+    } else {
+      setTopics([]);
+      setSelectedTopicId('');
     }
   }, [selectedSubjectId]);
 

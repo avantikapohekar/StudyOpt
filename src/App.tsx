@@ -17,6 +17,7 @@ import { FocusTimerView } from './views/FocusTimerView';
 import { NotesView } from './views/NotesView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
+import { LearningHubView } from './views/LearningHubView';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -101,6 +102,9 @@ function AppContent() {
               onNavigate={setCurrentSection}
               onOpenQuickAdd={() => setIsQuickAddOpen(true)}
             />
+          )}
+          {currentSection === 'learning' && (
+            <LearningHubView onNavigate={setCurrentSection} />
           )}
           {currentSection === 'planner' && <PlannerView />}
           {currentSection === 'academics' && <AcademicsView />}

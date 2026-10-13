@@ -214,6 +214,137 @@ export interface NoteRecord {
   updatedAt: string;
 }
 
+export type ResourceType =
+  | 'DOCUMENT'
+  | 'IMAGE'
+  | 'MARKDOWN'
+  | 'SPREADSHEET'
+  | 'VIDEO'
+  | 'PLAYLIST'
+  | 'COURSE'
+  | 'WEB_LINK'
+  | 'DRIVE_FILE'
+  | 'ANKI_DECK';
+
+export type ResourceSource =
+  | 'LOCAL_UPLOAD'
+  | 'WEB'
+  | 'YOUTUBE'
+  | 'UDEMY'
+  | 'GOOGLE_DRIVE'
+  | 'OBSIDIAN'
+  | 'ANKI';
+
+export interface ResourceRecord {
+  id: string;
+  userId: string;
+  subjectId?: string | null;
+  topicId?: string | null;
+  collectionId?: string | null;
+  type: ResourceType;
+  source: ResourceSource;
+  title: string;
+  description?: string;
+  url?: string | null;
+  storageKey?: string | null;
+  originalFilename?: string | null;
+  mimeType?: string | null;
+  fileSize?: number;
+  thumbnailUrl?: string | null;
+  tags: string; // JSON array string
+  metadata?: string; // JSON object string
+  isPinned: boolean;
+  isFavorite: boolean;
+  lastAccessedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CollectionRecord {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  subjectId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type FlashcardFormat = 'BASIC' | 'REVERSED' | 'CLOZE';
+export type FlashcardState = 'NEW' | 'LEARNING' | 'REVIEW' | 'RELEARNING';
+
+export interface FlashcardDeckRecord {
+  id: string;
+  userId: string;
+  subjectId?: string | null;
+  topicId?: string | null;
+  name: string;
+  description?: string;
+  tags: string; // JSON array string
+  cardCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FlashcardRecord {
+  id: string;
+  deckId: string;
+  userId: string;
+  front: string;
+  back: string;
+  format: FlashcardFormat;
+  interval: number; // in days
+  repetitions: number;
+  easeFactor: number; // default 2.5
+  dueDate: string; // ISO date YYYY-MM-DD
+  lastReviewedAt?: string | null;
+  state: FlashcardState;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FlashcardReviewLogRecord {
+  id: string;
+  cardId: string;
+  userId: string;
+  rating: number; // 1: Again, 2: Hard, 3: Good, 4: Easy
+  previousInterval: number;
+  newInterval: number;
+  easeFactor: number;
+  reviewedAt: string;
+}
+
+export interface GoogleDriveConnectionRecord {
+  id: string;
+  userId: string;
+  googleAccountId: string;
+  googleEmail?: string | null;
+  encryptedRefreshToken?: string | null;
+  grantedScopes?: string | null;
+  connectionStatus: 'CONNECTED' | 'DISCONNECTED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResourceLinkRecord {
+  id: string;
+  userId: string;
+  provider: 'GOOGLE_DRIVE';
+  externalFileId: string;
+  title: string;
+  mimeType?: string | null;
+  webUrl?: string | null;
+  subjectId?: string | null;
+  topicId?: string | null;
+  collectionId?: string | null;
+  tags?: string; // JSON array string
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StudyOSDatabaseSchema {
   users: UserRecord[];
   semesters: SemesterRecord[];
@@ -230,10 +361,23 @@ export interface StudyOSDatabaseSchema {
   habits: HabitRecord[];
   habitLogs: HabitLogRecord[];
   notes: NoteRecord[];
+  resources: ResourceRecord[];
+  collections: CollectionRecord[];
+  flashcardDecks: FlashcardDeckRecord[];
+  flashcards: FlashcardRecord[];
+  flashcardReviewLogs: FlashcardReviewLogRecord[];
+  googleDriveConnections: GoogleDriveConnectionRecord[];
+  resourceLinks: ResourceLinkRecord[];
 }
 
 const DATA_DIR = path.resolve(__dirname, '../data');
 const DATA_FILE = path.join(DATA_DIR, 'studyos_data.json');
+export const UPLOADS_DIR = path.resolve(__dirname, '../uploads');
+
+// Ensure upload directory exists
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
 
 class DatabaseEngine {
   private data: StudyOSDatabaseSchema;
@@ -250,9 +394,14 @@ class DatabaseEngine {
       if (fs.existsSync(DATA_FILE)) {
         const raw = fs.readFileSync(DATA_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (!parsed.subtasks) {
-          parsed.subtasks = [];
-        }
+        if (!parsed.subtasks) parsed.subtasks = [];
+        if (!parsed.resources) parsed.resources = [];
+        if (!parsed.collections) parsed.collections = [];
+        if (!parsed.flashcardDecks) parsed.flashcardDecks = [];
+        if (!parsed.flashcards) parsed.flashcards = [];
+        if (!parsed.flashcardReviewLogs) parsed.flashcardReviewLogs = [];
+        if (!parsed.googleDriveConnections) parsed.googleDriveConnections = [];
+        if (!parsed.resourceLinks) parsed.resourceLinks = [];
         return parsed;
       }
     } catch (err) {
@@ -275,6 +424,13 @@ class DatabaseEngine {
       habits: [],
       habitLogs: [],
       notes: [],
+      resources: [],
+      collections: [],
+      flashcardDecks: [],
+      flashcards: [],
+      flashcardReviewLogs: [],
+      googleDriveConnections: [],
+      resourceLinks: [],
     };
   }
 
@@ -321,6 +477,30 @@ class DatabaseEngine {
     this.data.habits = this.data.habits.filter(h => h.userId !== userId);
     this.data.notes = this.data.notes.filter(n => n.userId !== userId);
 
+    // Resources & Collections
+    const userResources = this.data.resources.filter(r => r.userId === userId);
+    userResources.forEach(r => {
+      if (r.storageKey) {
+        try {
+          const filePath = path.join(UPLOADS_DIR, r.storageKey);
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } catch (e) {
+          console.error('Failed to unlink file on user delete:', e);
+        }
+      }
+    });
+    this.data.resources = this.data.resources.filter(r => r.userId !== userId);
+    this.data.collections = this.data.collections.filter(c => c.userId !== userId);
+
+    // Flashcards
+    this.data.flashcards = this.data.flashcards.filter(fc => fc.userId !== userId);
+    this.data.flashcardReviewLogs = this.data.flashcardReviewLogs.filter(rl => rl.userId !== userId);
+    this.data.flashcardDecks = this.data.flashcardDecks.filter(fd => fd.userId !== userId);
+
+    // Google Drive & Resource Links
+    this.data.googleDriveConnections = this.data.googleDriveConnections.filter(c => c.userId !== userId);
+    this.data.resourceLinks = this.data.resourceLinks.filter(rl => rl.userId !== userId);
+
     this.save();
   }
 
@@ -331,7 +511,7 @@ class DatabaseEngine {
     this.data.units = this.data.units.filter(u => u.subjectId !== subjectId);
     this.data.subjects = this.data.subjects.filter(s => s.id !== subjectId);
 
-    // Set null on tasks, timetable, studySessions, exams, notes
+    // Set null on tasks, timetable, studySessions, exams, notes, resources, decks
     this.data.tasks.forEach(t => {
       if (t.subjectId === subjectId) t.subjectId = null;
     });
@@ -343,6 +523,18 @@ class DatabaseEngine {
     });
     this.data.notes.forEach(n => {
       if (n.subjectId === subjectId) n.subjectId = null;
+    });
+    this.data.resources.forEach(r => {
+      if (r.subjectId === subjectId) {
+        r.subjectId = null;
+        r.topicId = null;
+      }
+    });
+    this.data.flashcardDecks.forEach(d => {
+      if (d.subjectId === subjectId) {
+        d.subjectId = null;
+        d.topicId = null;
+      }
     });
     this.data.exams = this.data.exams.filter(e => e.subjectId !== subjectId);
 

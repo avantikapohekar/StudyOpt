@@ -161,18 +161,44 @@ academicRouter.post('/subjects', (req: Request, res: Response) => {
   const userId = req.user!.id;
   const { semesterId, name, code, color, credits } = req.body;
 
-  if (!semesterId || !name || !code) {
-    return res.status(400).json({ error: 'Validation Error', message: 'Semester, name, and code are required' });
+  if (!name || !code) {
+    return res.status(400).json({ error: 'Validation Error', message: 'Name and code are required' });
   }
 
-  const semester = dbInstance.db.semesters.find(s => s.id === semesterId && s.userId === userId);
+  let targetSemesterId = semesterId;
+  let semester = targetSemesterId
+    ? dbInstance.db.semesters.find(s => s.id === targetSemesterId && s.userId === userId)
+    : null;
+
   if (!semester) {
-    return res.status(404).json({ error: 'Not Found', message: 'Semester not found' });
+    const userSem = dbInstance.db.semesters.find(s => s.userId === userId && s.isActive)
+      || dbInstance.db.semesters.find(s => s.userId === userId);
+
+    if (userSem) {
+      semester = userSem;
+      targetSemesterId = userSem.id;
+    } else {
+      const newSemId = `sem_${Date.now()}`;
+      const now = new Date();
+      const fourMonthsLater = new Date(Date.now() + 120 * 86400000);
+      semester = {
+        id: newSemId,
+        userId,
+        name: 'Fall Semester 2026',
+        startDate: now.toISOString(),
+        endDate: fourMonthsLater.toISOString(),
+        isActive: true,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      };
+      dbInstance.db.semesters.push(semester);
+      targetSemesterId = newSemId;
+    }
   }
 
   const newSubject = {
     id: `sub_${Date.now()}`,
-    semesterId,
+    semesterId: targetSemesterId,
     name: name.trim(),
     code: code.trim().toUpperCase(),
     color: color || '#10b981',
@@ -185,6 +211,19 @@ academicRouter.post('/subjects', (req: Request, res: Response) => {
   dbInstance.save();
 
   return res.status(201).json({ subject: newSubject });
+});
+
+// Get single subject
+academicRouter.get('/subjects/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!id || id === 'undefined' || id === 'null') {
+    return res.status(404).json({ error: 'Subject not found' });
+  }
+
+  const subject = dbInstance.db.subjects.find(s => s.id === id);
+  if (!subject) return res.status(404).json({ error: 'Subject not found' });
+
+  return res.json({ subject });
 });
 
 // Update subject
@@ -233,11 +272,32 @@ academicRouter.get('/subjects/:id/syllabus', (req: Request, res: Response) => {
   const userId = req.user!.id;
   const { id } = req.params;
 
-  const subject = dbInstance.db.subjects.find(s => s.id === id);
-  if (!subject) return res.status(404).json({ error: 'Subject not found' });
+  if (!id || id === 'undefined' || id === 'null') {
+    return res.json({
+      subject: null,
+      overallProgress: 0,
+      totalTopics: 0,
+      masteredTopics: 0,
+      units: [],
+    });
+  }
 
-  const semester = dbInstance.db.semesters.find(s => s.id === subject.semesterId && s.userId === userId);
-  if (!semester) return res.status(403).json({ error: 'Forbidden' });
+  const subject = dbInstance.db.subjects.find(s => s.id === id);
+  if (!subject) {
+    return res.json({
+      subject: null,
+      overallProgress: 0,
+      totalTopics: 0,
+      masteredTopics: 0,
+      units: [],
+      error: 'Subject not found',
+    });
+  }
+
+  const semester = dbInstance.db.semesters.find(s => s.id === subject.semesterId);
+  if (semester && semester.userId !== userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
   const units = dbInstance.db.units
     .filter(u => u.subjectId === id)

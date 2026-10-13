@@ -19,6 +19,7 @@ import { useAuth } from '../context/AuthContext';
 
 export type NavSection =
   | 'dashboard'
+  | 'learning'
   | 'planner'
   | 'academics'
   | 'tasks'
@@ -40,6 +41,7 @@ interface SidebarProps {
 
 const NAV_ITEMS: Array<{ id: NavSection; label: string; icon: React.ElementType; badge?: string }> = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'learning', label: 'Learning Hub', icon: BookOpen, badge: 'Hub' },
   { id: 'planner', label: 'Planner & Timetable', icon: Calendar },
   { id: 'academics', label: 'Academics & Syllabus', icon: GraduationCap },
   { id: 'tasks', label: 'Tasks & Assignments', icon: CheckSquare },

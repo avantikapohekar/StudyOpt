@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { dbInstance } from '../db.js';
 import { authenticateUser } from '../auth.js';
 import { calculateTopicProgressWeight } from './academicRoutes.js';
+import { tagsToInputString } from '../tagUtils.js';
 
 export const dashboardRouter = Router();
 dashboardRouter.use(authenticateUser);
@@ -390,13 +391,7 @@ dashboardRouter.get('/analytics/export', (req: Request, res: Response) => {
     const noteRows = notes.map(n => {
       const sub = n.subjectId ? subjects.find(s => s.id === n.subjectId) : null;
       const topic = n.topicId ? topics.find(t => t.id === n.topicId) : null;
-      let tagStr = '';
-      try {
-        const parsed = JSON.parse(n.tags);
-        tagStr = Array.isArray(parsed) ? parsed.join(', ') : String(n.tags);
-      } catch {
-        tagStr = String(n.tags || '');
-      }
+      const tagStr = tagsToInputString(n.tags);
 
       return {
         id: n.id,
@@ -530,13 +525,7 @@ dashboardRouter.get('/analytics/export', (req: Request, res: Response) => {
       }),
       ...notes.map(n => {
         const sub = n.subjectId ? subjects.find(s => s.id === n.subjectId) : null;
-        let tagStr = '';
-        try {
-          const parsed = JSON.parse(n.tags);
-          tagStr = Array.isArray(parsed) ? parsed.join(', ') : String(n.tags);
-        } catch {
-          tagStr = String(n.tags || '');
-        }
+        const tagStr = tagsToInputString(n.tags);
         return {
           recordType: 'NOTE',
           id: n.id,

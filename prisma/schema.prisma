@@ -93,6 +93,13 @@ model User {
   goals                Goal[]
   habits               Habit[]
   notes                Note[]
+  resources            Resource[]
+  collections          Collection[]
+  flashcardDecks       FlashcardDeck[]
+  flashcards           Flashcard[]
+  flashcardReviewLogs  FlashcardReviewLog[]
+  googleDriveConnections GoogleDriveConnection[]
+  resourceLinks        ResourceLink[]
 
   @@map("users")
 }
@@ -388,4 +395,199 @@ model Note {
   @@index([subjectId])
   @@index([topicId])
   @@map("notes")
+}
+
+enum ResourceType {
+  DOCUMENT
+  IMAGE
+  MARKDOWN
+  SPREADSHEET
+  VIDEO
+  PLAYLIST
+  COURSE
+  WEB_LINK
+  DRIVE_FILE
+  ANKI_DECK
+}
+
+enum ResourceSource {
+  LOCAL_UPLOAD
+  WEB
+  YOUTUBE
+  UDEMY
+  GOOGLE_DRIVE
+  OBSIDIAN
+  ANKI
+}
+
+enum FlashcardFormat {
+  BASIC
+  REVERSED
+  CLOZE
+}
+
+enum FlashcardState {
+  NEW
+  LEARNING
+  REVIEW
+  RELEARNING
+}
+
+model Collection {
+  id          String     @id @default(uuid())
+  userId      String     @map("user_id")
+  name        String
+  description String?    @db.Text
+  color       String?
+  icon        String?
+  subjectId   String?    @map("subject_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resources   Resource[]
+
+  @@index([userId])
+  @@map("collections")
+}
+
+model Resource {
+  id               String         @id @default(uuid())
+  userId           String         @map("user_id")
+  subjectId        String?        @map("subject_id")
+  topicId          String?        @map("topic_id")
+  collectionId     String?        @map("collection_id")
+  type             ResourceType
+  source           ResourceSource
+  title            String
+  description      String?        @db.Text
+  url              String?        @db.Text
+  storageKey       String?        @map("storage_key")
+  originalFilename String?        @map("original_filename")
+  mimeType         String?        @map("mime_type")
+  fileSize         Int?           @map("file_size")
+  thumbnailUrl     String?        @map("thumbnail_url") @db.Text
+  tags             String?        @default("[]")
+  metadata         String?        @db.Text
+  isPinned         Boolean        @default(false) @map("is_pinned")
+  isFavorite       Boolean        @default(false) @map("is_favorite")
+  lastAccessedAt   DateTime       @default(now()) @map("last_accessed_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collection       Collection?    @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([subjectId])
+  @@index([topicId])
+  @@index([collectionId])
+  @@map("resources")
+}
+
+model FlashcardDeck {
+  id          String      @id @default(uuid())
+  userId      String      @map("user_id")
+  subjectId   String?     @map("subject_id")
+  topicId     String?     @map("topic_id")
+  name        String
+  description String?     @db.Text
+  tags        String?     @default("[]")
+  cardCount   Int         @default(0) @map("card_count")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards       Flashcard[]
+
+  @@index([userId])
+  @@index([subjectId])
+  @@map("flashcard_decks")
+}
+
+model Flashcard {
+  id             String               @id @default(uuid())
+  deckId         String               @map("deck_id")
+  userId         String               @map("user_id")
+  front          String               @db.LongText
+  back           String               @db.LongText
+  format         FlashcardFormat      @default(BASIC)
+  interval       Int                  @default(1)
+  repetitions    Int                  @default(0)
+  easeFactor     Float                @default(2.5) @map("ease_factor")
+  dueDate        DateTime             @map("due_date")
+  lastReviewedAt DateTime?            @map("last_reviewed_at")
+  state          FlashcardState       @default(NEW)
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  deck           FlashcardDeck        @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewLogs     FlashcardReviewLog[]
+
+  @@index([deckId])
+  @@index([userId])
+  @@index([dueDate])
+  @@map("flashcards")
+}
+
+model FlashcardReviewLog {
+  id               String    @id @default(uuid())
+  cardId           String    @map("card_id")
+  userId           String    @map("user_id")
+  rating           Int
+  previousInterval Int       @map("previous_interval")
+  newInterval      Int       @map("new_interval")
+  easeFactor       Float     @map("ease_factor")
+  reviewedAt       DateTime  @default(now()) @map("reviewed_at")
+
+  card             Flashcard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([userId])
+  @@map("flashcard_review_logs")
+}
+
+model GoogleDriveConnection {
+  id                    String   @id @default(uuid())
+  userId                String   @map("user_id")
+  googleAccountId       String   @map("google_account_id")
+  googleEmail           String?  @map("google_email")
+  encryptedRefreshToken String?  @db.Text @map("encrypted_refresh_token")
+  grantedScopes         String?  @db.Text @map("granted_scopes")
+  connectionStatus      String   @default("CONNECTED") @map("connection_status")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, googleAccountId])
+  @@index([userId])
+  @@map("google_drive_connections")
+}
+
+model ResourceLink {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  provider       String   @default("GOOGLE_DRIVE")
+  externalFileId String   @map("external_file_id")
+  title          String
+  mimeType       String?  @map("mime_type")
+  webUrl         String?  @db.Text @map("web_url")
+  subjectId      String?  @map("subject_id")
+  topicId        String?  @map("topic_id")
+  collectionId   String?  @map("collection_id")
+  tags           String?  @default("[]")
+  description    String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([externalFileId])
+  @@index([subjectId])
+  @@index([topicId])
+  @@map("resource_links")
 }

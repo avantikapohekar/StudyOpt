@@ -113,8 +113,312 @@ export function seedInitialDataIfNeeded() {
     }
   };
 
+  const populateLearningHub = () => {
+    if (!dbInstance.db.collections) dbInstance.db.collections = [];
+    if (!dbInstance.db.resources) dbInstance.db.resources = [];
+    if (!dbInstance.db.flashcardDecks) dbInstance.db.flashcardDecks = [];
+    if (!dbInstance.db.flashcards) dbInstance.db.flashcards = [];
+    if (!dbInstance.db.flashcardReviewLogs) dbInstance.db.flashcardReviewLogs = [];
+
+    const todayIso = new Date().toISOString().split('T')[0];
+    const yesterdayIso = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+    for (const u of dbInstance.db.users) {
+      const userCollections = dbInstance.db.collections.filter(c => c.userId === u.id);
+      const userResources = dbInstance.db.resources.filter(r => r.userId === u.id);
+      const userDecks = dbInstance.db.flashcardDecks.filter(d => d.userId === u.id);
+
+      // Find subjects for user
+      const userSemesters = dbInstance.db.semesters.filter(s => s.userId === u.id).map(s => s.id);
+      const userSubjects = dbInstance.db.subjects.filter(s => userSemesters.includes(s.semesterId));
+      const sub1 = userSubjects[0]?.id || null;
+      const sub2 = userSubjects[1]?.id || null;
+
+      if (userCollections.length === 0) {
+        dbInstance.db.collections.push(
+          {
+            id: `col_01_${u.id}`,
+            userId: u.id,
+            name: 'Core Textbooks & Lecture Slides',
+            description: 'Syllabus textbooks, professor lecture slide decks, and exam reference sheets.',
+            color: '#6366f1',
+            icon: 'book-open',
+            subjectId: sub1,
+            createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+          },
+          {
+            id: `col_02_${u.id}`,
+            userId: u.id,
+            name: 'Video Lectures & Crash Courses',
+            description: 'YouTube playlists, university recordings, and external tutorial modules.',
+            color: '#ef4444',
+            icon: 'video',
+            subjectId: sub2,
+            createdAt: new Date(Date.now() - 8 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 8 * 86400000).toISOString(),
+          },
+          {
+            id: `col_03_${u.id}`,
+            userId: u.id,
+            name: 'Cheat Sheets & Code Snippets',
+            description: 'Quick algorithm templates, mathematical identities, and markdown summaries.',
+            color: '#10b981',
+            icon: 'code',
+            subjectId: null,
+            createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+          }
+        );
+      }
+
+      if (userResources.length === 0) {
+        dbInstance.db.resources.push(
+          {
+            id: `res_01_${u.id}`,
+            userId: u.id,
+            subjectId: sub1,
+            topicId: null,
+            collectionId: `col_02_${u.id}`,
+            type: 'VIDEO',
+            source: 'YOUTUBE',
+            title: 'MIT 6.006: Introduction to Algorithms - Dynamic Programming & Memoization',
+            description: 'Erik Demaine lecture covering subproblem DAGs, memoization vs bottom-up tabulation, Fibonacci, and shortest paths.',
+            url: 'https://www.youtube.com/watch?v=OQ5jsBhAv_M',
+            storageKey: null,
+            originalFilename: null,
+            mimeType: null,
+            fileSize: 0,
+            thumbnailUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=500&q=80',
+            tags: JSON.stringify(['algorithms', 'dynamic-programming', 'mit', 'lecture']),
+            metadata: JSON.stringify({ videoId: 'OQ5jsBhAv_M', platform: 'YouTube', duration: '51:40' }),
+            isPinned: true,
+            isFavorite: true,
+            lastAccessedAt: new Date().toISOString(),
+            createdAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+          },
+          {
+            id: `res_02_${u.id}`,
+            userId: u.id,
+            subjectId: sub2,
+            topicId: null,
+            collectionId: `col_02_${u.id}`,
+            type: 'VIDEO',
+            source: 'YOUTUBE',
+            title: '3Blue1Brown: Essence of Linear Algebra - Eigenvalues and Eigenvectors',
+            description: 'Geometric intuition behind what eigenvectors represent as axes of invariant direction under linear transformation.',
+            url: 'https://www.youtube.com/watch?v=PFDu9oVAE-g',
+            storageKey: null,
+            originalFilename: null,
+            mimeType: null,
+            fileSize: 0,
+            thumbnailUrl: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=500&q=80',
+            tags: JSON.stringify(['math', 'linear-algebra', '3blue1brown', 'visual']),
+            metadata: JSON.stringify({ videoId: 'PFDu9oVAE-g', platform: 'YouTube', duration: '17:15' }),
+            isPinned: true,
+            isFavorite: false,
+            lastAccessedAt: new Date().toISOString(),
+            createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+          },
+          {
+            id: `res_03_${u.id}`,
+            userId: u.id,
+            subjectId: sub1,
+            topicId: null,
+            collectionId: `col_03_${u.id}`,
+            type: 'WEB_LINK',
+            source: 'WEB',
+            title: "GeeksforGeeks: Dijkstra's Shortest Path Algorithm Complexity & Heap Implementation",
+            description: 'Complete breakdown of adjacency list + min-heap implementation achieving O((V + E) log V) runtime.',
+            url: 'https://www.geeksforgeeks.org/dijkstras-shortest-path-algorithm-greedy-algo-7/',
+            storageKey: null,
+            originalFilename: null,
+            mimeType: null,
+            fileSize: 0,
+            thumbnailUrl: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=500&q=80',
+            tags: JSON.stringify(['graphs', 'dijkstra', 'greedy', 'c++']),
+            metadata: JSON.stringify({ domain: 'geeksforgeeks.org', readTime: '8 min' }),
+            isPinned: false,
+            isFavorite: true,
+            lastAccessedAt: new Date().toISOString(),
+            createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+          },
+          {
+            id: `res_04_${u.id}`,
+            userId: u.id,
+            subjectId: sub1,
+            topicId: null,
+            collectionId: `col_01_${u.id}`,
+            type: 'DRIVE_FILE',
+            source: 'GOOGLE_DRIVE',
+            title: 'CS301 Algorithm Analysis - Lecture Notes & Proofs.pdf',
+            description: 'Formal proofs for master theorem cases, amortized analysis potential method, and graph coloring NP-hardness.',
+            url: 'https://drive.google.com/file/d/sample-algo-proofs/view',
+            storageKey: null,
+            originalFilename: 'CS301 Algorithm Analysis - Lecture Notes & Proofs.pdf',
+            mimeType: 'application/pdf',
+            fileSize: 4280000,
+            thumbnailUrl: 'https://ssl.gstatic.com/docs/doclist/images/icon_10_pdf_list.png',
+            tags: JSON.stringify(['google-drive', 'pdf', 'proofs', 'midterm']),
+            metadata: JSON.stringify({ driveFileId: 'drive-doc-001', syncStatus: 'synced' }),
+            isPinned: false,
+            isFavorite: false,
+            lastAccessedAt: new Date().toISOString(),
+            createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+          },
+          {
+            id: `res_05_${u.id}`,
+            userId: u.id,
+            subjectId: sub1,
+            topicId: null,
+            collectionId: `col_03_${u.id}`,
+            type: 'MARKDOWN',
+            source: 'OBSIDIAN',
+            title: 'Algorithmic Complexity & Big-O Master Reference.md',
+            description: 'Comprehensive table comparing best, average, and worst cases for sorting, search trees, hashing, and priority queues.',
+            url: null,
+            storageKey: null,
+            originalFilename: 'Algorithmic Complexity & Big-O Master Reference.md',
+            mimeType: 'text/markdown',
+            fileSize: 18450,
+            thumbnailUrl: null,
+            tags: JSON.stringify(['cheat-sheet', 'big-o', 'sorting', 'data-structures']),
+            metadata: JSON.stringify({ noteLinked: true, author: 'Alex Chen' }),
+            isPinned: true,
+            isFavorite: true,
+            lastAccessedAt: new Date().toISOString(),
+            createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+          }
+        );
+      }
+
+      if (userDecks.length === 0) {
+        const deck1Id = `deck_01_${u.id}`;
+        const deck2Id = `deck_02_${u.id}`;
+
+        dbInstance.db.flashcardDecks.push(
+          {
+            id: deck1Id,
+            userId: u.id,
+            subjectId: sub1,
+            topicId: null,
+            name: 'Data Structures & Algorithmic Complexities',
+            description: 'High-yield Anki deck reviewing asymptopia, tree rotations, hash collisions, and graph traversal guarantees.',
+            tags: JSON.stringify(['algorithms', 'data-structures']),
+            cardCount: 4,
+            createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: deck2Id,
+            userId: u.id,
+            subjectId: sub2,
+            topicId: null,
+            name: 'Linear Algebra: Eigenvalues & Diagonalization',
+            description: 'Key theorems, characteristic polynomial roots, algebraic vs geometric multiplicity, and matrix powers.',
+            tags: JSON.stringify(['math', 'linear-algebra', 'midterm']),
+            cardCount: 3,
+            createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+            updatedAt: new Date().toISOString(),
+          }
+        );
+
+        dbInstance.db.flashcards.push(
+          {
+            id: `card_01_${u.id}`,
+            deckId: deck1Id,
+            userId: u.id,
+            front: 'What is the worst-case and average-case time complexity of finding an element in a Red-Black Tree with $N$ nodes?',
+            back: '**Worst-case:** $O(\\log N)$\n**Average-case:** $O(\\log N)$\n\n*Why:* A Red-Black tree guarantees that the longest path from root to leaf is no more than twice the shortest path, maintaining strict logarithmic balance.',
+            format: 'BASIC',
+            interval: 1,
+            repetitions: 1,
+            easeFactor: 2.5,
+            dueDate: todayIso,
+            lastReviewedAt: yesterdayIso,
+            state: 'REVIEW',
+            createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: `card_02_${u.id}`,
+            deckId: deck1Id,
+            userId: u.id,
+            front: "State the time complexity of Dijkstra's algorithm implemented with an adjacency list and a Binary Min-Heap.",
+            back: '$$O((V + E) \\log V)$$\n\n- Extract-Min is called $V$ times: $O(V \\log V)$\n- Decrease-Key is called at most $E$ times: $O(E \\log V)$',
+            format: 'BASIC',
+            interval: 3,
+            repetitions: 2,
+            easeFactor: 2.5,
+            dueDate: todayIso,
+            lastReviewedAt: yesterdayIso,
+            state: 'REVIEW',
+            createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: `card_03_${u.id}`,
+            deckId: deck1Id,
+            userId: u.id,
+            front: 'What is the master theorem condition and solution for $T(n) = 2T(n/2) + O(n)$?',
+            back: 'Here $a = 2, b = 2, \\log_b a = \\log_2 2 = 1$.\n$f(n) = O(n) = \\Theta(n^1) = \\Theta(n^{\\log_b a})$.\n\nBy Case 2 of the Master Theorem:\n$$T(n) = \\Theta(n \\log n)$$',
+            format: 'BASIC',
+            interval: 6,
+            repetitions: 3,
+            easeFactor: 2.6,
+            dueDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+            lastReviewedAt: yesterdayIso,
+            state: 'REVIEW',
+            createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: `card_04_${u.id}`,
+            deckId: deck1Id,
+            userId: u.id,
+            front: 'Explain the difference between Prim\'s algorithm and Kruskal\'s algorithm for Minimum Spanning Trees.',
+            back: '- **Prim\'s**: Grows a single tree starting from an arbitrary vertex using a priority queue of cut edges.\n- **Kruskal\'s**: Sorts all edges globally by weight and adds edges if they don\'t form a cycle using a **Disjoint Set (Union-Find)** data structure.',
+            format: 'BASIC',
+            interval: 0,
+            repetitions: 0,
+            easeFactor: 2.5,
+            dueDate: todayIso,
+            lastReviewedAt: null,
+            state: 'NEW',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: `card_05_${u.id}`,
+            deckId: deck2Id,
+            userId: u.id,
+            front: 'Under what condition is an $n \\times n$ matrix $A$ diagonalizable?',
+            back: 'Matrix $A$ is diagonalizable if and only if it has **$n$ linearly independent eigenvectors**.\n\nEquivalently, for every eigenvalue $\\lambda_i$, the geometric multiplicity equals the algebraic multiplicity.',
+            format: 'BASIC',
+            interval: 1,
+            repetitions: 1,
+            easeFactor: 2.5,
+            dueDate: todayIso,
+            lastReviewedAt: yesterdayIso,
+            state: 'REVIEW',
+            createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+            updatedAt: new Date().toISOString(),
+          }
+        );
+      }
+    }
+
+    dbInstance.save();
+  };
+
   if (dbInstance.db.users.length > 0) {
     populateSubtasks();
+    populateLearningHub();
     return; // Already seeded or has data
   }
 
@@ -794,6 +1098,341 @@ $$A v = \\lambda v$$
       updatedAt: new Date(Date.now() - 1 * 86400000).toISOString(),
     }
   );
+
+  // Populate Collections, Resources, and Flashcard Decks if empty
+  if (!dbInstance.db.collections) dbInstance.db.collections = [];
+  if (!dbInstance.db.resources) dbInstance.db.resources = [];
+  if (!dbInstance.db.flashcardDecks) dbInstance.db.flashcardDecks = [];
+  if (!dbInstance.db.flashcards) dbInstance.db.flashcards = [];
+  if (!dbInstance.db.flashcardReviewLogs) dbInstance.db.flashcardReviewLogs = [];
+
+  const todayIso = new Date().toISOString().split('T')[0];
+  const yesterdayIso = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+  if (dbInstance.db.collections.length === 0) {
+    dbInstance.db.collections.push(
+      {
+        id: 'col_01',
+        userId,
+        name: 'Core Textbooks & Lecture Slides',
+        description: 'Syllabus textbooks, professor lecture slide decks, and exam reference sheets.',
+        color: '#6366f1',
+        icon: 'book-open',
+        subjectId: subCS106B,
+        createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+      },
+      {
+        id: 'col_02',
+        userId,
+        name: 'Video Lectures & Crash Courses',
+        description: 'YouTube playlists, university recordings, and external tutorial modules.',
+        color: '#ef4444',
+        icon: 'video',
+        subjectId: subMATH51,
+        createdAt: new Date(Date.now() - 8 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 8 * 86400000).toISOString(),
+      },
+      {
+        id: 'col_03',
+        userId,
+        name: 'Cheat Sheets & Code Snippets',
+        description: 'Quick algorithm templates, mathematical identities, and markdown summaries.',
+        color: '#10b981',
+        icon: 'code',
+        subjectId: null,
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+      }
+    );
+  }
+
+  if (dbInstance.db.resources.length === 0) {
+    dbInstance.db.resources.push(
+      {
+        id: 'res_01',
+        userId,
+        subjectId: subCS106B,
+        topicId: 'top_cs_01',
+        collectionId: 'col_02',
+        type: 'VIDEO',
+        source: 'YOUTUBE',
+        title: 'MIT 6.006: Introduction to Algorithms - Dynamic Programming & Memoization',
+        description: 'Erik Demaine lecture covering subproblem DAGs, memoization vs bottom-up tabulation, Fibonacci, and shortest paths.',
+        url: 'https://www.youtube.com/watch?v=OQ5jsBhAv_M',
+        storageKey: null,
+        originalFilename: null,
+        mimeType: null,
+        fileSize: 0,
+        thumbnailUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=500&q=80',
+        tags: JSON.stringify(['algorithms', 'dynamic-programming', 'mit', 'lecture']),
+        metadata: JSON.stringify({ videoId: 'OQ5jsBhAv_M', platform: 'YouTube', duration: '51:40' }),
+        isPinned: true,
+        isFavorite: true,
+        lastAccessedAt: new Date().toISOString(),
+        createdAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+      },
+      {
+        id: 'res_02',
+        userId,
+        subjectId: subMATH51,
+        topicId: 'top_math_03',
+        collectionId: 'col_02',
+        type: 'VIDEO',
+        source: 'YOUTUBE',
+        title: '3Blue1Brown: Essence of Linear Algebra - Eigenvalues and Eigenvectors',
+        description: 'Geometric intuition behind what eigenvectors represent as axes of invariant direction under linear transformation.',
+        url: 'https://www.youtube.com/watch?v=PFDu9oVAE-g',
+        storageKey: null,
+        originalFilename: null,
+        mimeType: null,
+        fileSize: 0,
+        thumbnailUrl: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=500&q=80',
+        tags: JSON.stringify(['math', 'linear-algebra', '3blue1brown', 'visual']),
+        metadata: JSON.stringify({ videoId: 'PFDu9oVAE-g', platform: 'YouTube', duration: '17:15' }),
+        isPinned: true,
+        isFavorite: false,
+        lastAccessedAt: new Date().toISOString(),
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+      },
+      {
+        id: 'res_03',
+        userId,
+        subjectId: subCS106B,
+        topicId: 'top_cs_02',
+        collectionId: 'col_03',
+        type: 'WEB_LINK',
+        source: 'WEB',
+        title: "GeeksforGeeks: Dijkstra's Shortest Path Algorithm Complexity & Heap Implementation",
+        description: 'Complete breakdown of adjacency list + min-heap implementation achieving O((V + E) log V) runtime.',
+        url: 'https://www.geeksforgeeks.org/dijkstras-shortest-path-algorithm-greedy-algo-7/',
+        storageKey: null,
+        originalFilename: null,
+        mimeType: null,
+        fileSize: 0,
+        thumbnailUrl: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=500&q=80',
+        tags: JSON.stringify(['graphs', 'dijkstra', 'greedy', 'c++']),
+        metadata: JSON.stringify({ domain: 'geeksforgeeks.org', readTime: '8 min' }),
+        isPinned: false,
+        isFavorite: true,
+        lastAccessedAt: new Date().toISOString(),
+        createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+      },
+      {
+        id: 'res_04',
+        userId,
+        subjectId: subCS106B,
+        topicId: 'top_cs_03',
+        collectionId: 'col_01',
+        type: 'DRIVE_FILE',
+        source: 'GOOGLE_DRIVE',
+        title: 'CS301 Algorithm Analysis - Lecture Notes & Proofs.pdf',
+        description: 'Formal proofs for master theorem cases, amortized analysis potential method, and graph coloring NP-hardness.',
+        url: 'https://drive.google.com/file/d/sample-algo-proofs/view',
+        storageKey: null,
+        originalFilename: 'CS301 Algorithm Analysis - Lecture Notes & Proofs.pdf',
+        mimeType: 'application/pdf',
+        fileSize: 4280000,
+        thumbnailUrl: 'https://ssl.gstatic.com/docs/doclist/images/icon_10_pdf_list.png',
+        tags: JSON.stringify(['google-drive', 'pdf', 'proofs', 'midterm']),
+        metadata: JSON.stringify({ driveFileId: 'drive-doc-001', syncStatus: 'synced' }),
+        isPinned: false,
+        isFavorite: false,
+        lastAccessedAt: new Date().toISOString(),
+        createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      },
+      {
+        id: 'res_05',
+        userId,
+        subjectId: subCS106B,
+        topicId: 'top_cs_01',
+        collectionId: 'col_03',
+        type: 'MARKDOWN',
+        source: 'OBSIDIAN',
+        title: 'Algorithmic Complexity & Big-O Master Reference.md',
+        description: 'Comprehensive table comparing best, average, and worst cases for sorting, search trees, hashing, and priority queues.',
+        url: null,
+        storageKey: null,
+        originalFilename: 'Algorithmic Complexity & Big-O Master Reference.md',
+        mimeType: 'text/markdown',
+        fileSize: 18450,
+        thumbnailUrl: null,
+        tags: JSON.stringify(['cheat-sheet', 'big-o', 'sorting', 'data-structures']),
+        metadata: JSON.stringify({ noteLinked: true, author: 'Alex Chen' }),
+        isPinned: true,
+        isFavorite: true,
+        lastAccessedAt: new Date().toISOString(),
+        createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    );
+  }
+
+  if (dbInstance.db.flashcardDecks.length === 0) {
+    dbInstance.db.flashcardDecks.push(
+      {
+        id: 'deck_01',
+        userId,
+        subjectId: subCS106B,
+        topicId: 'top_cs_01',
+        name: 'Data Structures & Algorithmic Complexities',
+        description: 'High-yield Anki deck reviewing asymptopia, tree rotations, hash collisions, and graph traversal guarantees.',
+        tags: JSON.stringify(['algorithms', 'data-structures', 'cs106b']),
+        cardCount: 4,
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'deck_02',
+        userId,
+        subjectId: subMATH51,
+        topicId: 'top_math_03',
+        name: 'Linear Algebra: Eigenvalues & Diagonalization',
+        description: 'Key theorems, characteristic polynomial roots, algebraic vs geometric multiplicity, and matrix powers.',
+        tags: JSON.stringify(['math', 'linear-algebra', 'midterm']),
+        cardCount: 4,
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    );
+
+    // Cards for Deck 1
+    dbInstance.db.flashcards.push(
+      {
+        id: 'card_01',
+        deckId: 'deck_01',
+        userId,
+        front: 'What is the worst-case and average-case time complexity of finding an element in a Red-Black Tree with $N$ nodes?',
+        back: '**Worst-case:** $O(\\log N)$\n**Average-case:** $O(\\log N)$\n\n*Why:* A Red-Black tree guarantees that the longest path from root to leaf is no more than twice the shortest path, maintaining strict logarithmic balance.',
+        format: 'BASIC',
+        interval: 1,
+        repetitions: 1,
+        easeFactor: 2.5,
+        dueDate: todayIso, // Due today!
+        lastReviewedAt: yesterdayIso,
+        state: 'REVIEW',
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'card_02',
+        deckId: 'deck_01',
+        userId,
+        front: "State the time complexity of Dijkstra's algorithm implemented with an adjacency list and a Binary Min-Heap.",
+        back: '$$O((V + E) \\log V)$$\n\n- Extract-Min is called $V$ times: $O(V \\log V)$\n- Decrease-Key is called at most $E$ times: $O(E \\log V)$',
+        format: 'BASIC',
+        interval: 3,
+        repetitions: 2,
+        easeFactor: 2.5,
+        dueDate: todayIso, // Due today!
+        lastReviewedAt: yesterdayIso,
+        state: 'REVIEW',
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'card_03',
+        deckId: 'deck_01',
+        userId,
+        front: 'What is the master theorem condition and solution for $T(n) = 2T(n/2) + O(n)$?',
+        back: 'Here $a = 2, b = 2, \\log_b a = \\log_2 2 = 1$.\n$f(n) = O(n) = \\Theta(n^1) = \\Theta(n^{\\log_b a})$.\n\nBy Case 2 of the Master Theorem:\n$$T(n) = \\Theta(n \\log n)$$',
+        format: 'BASIC',
+        interval: 6,
+        repetitions: 3,
+        easeFactor: 2.6,
+        dueDate: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+        lastReviewedAt: yesterdayIso,
+        state: 'REVIEW',
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'card_04',
+        deckId: 'deck_01',
+        userId,
+        front: 'Explain the difference between Prim\'s algorithm and Kruskal\'s algorithm for Minimum Spanning Trees.',
+        back: '- **Prim\'s**: Grows a single tree starting from an arbitrary vertex using a priority queue of cut edges.\n- **Kruskal\'s**: Sorts all edges globally by weight and adds edges if they don\'t form a cycle using a **Disjoint Set (Union-Find)** data structure.',
+        format: 'BASIC',
+        interval: 0,
+        repetitions: 0,
+        easeFactor: 2.5,
+        dueDate: todayIso,
+        lastReviewedAt: null,
+        state: 'NEW',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      // Cards for Deck 2
+      {
+        id: 'card_05',
+        deckId: 'deck_02',
+        userId,
+        front: 'Under what condition is an $n \\times n$ matrix $A$ diagonalizable?',
+        back: 'Matrix $A$ is diagonalizable if and only if it has **$n$ linearly independent eigenvectors**.\n\nEquivalently, for every eigenvalue $\\lambda_i$, the **geometric multiplicity** (dimension of eigenspace) equals the **algebraic multiplicity** (multiplicity as root of characteristic polynomial).',
+        format: 'BASIC',
+        interval: 1,
+        repetitions: 1,
+        easeFactor: 2.5,
+        dueDate: todayIso, // Due today!
+        lastReviewedAt: yesterdayIso,
+        state: 'REVIEW',
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'card_06',
+        deckId: 'deck_02',
+        userId,
+        front: 'If $A = P D P^{-1}$, write the simplified formula for computing matrix power $A^k$.',
+        back: '$$A^k = P D^k P^{-1}$$\n\nWhere $D^k$ is simply the diagonal matrix with each diagonal eigenvalue raised to power $k$:\n$$\\operatorname{diag}(\\lambda_1^k, \\lambda_2^k, \\dots, \\lambda_n^k)$$',
+        format: 'BASIC',
+        interval: 4,
+        repetitions: 2,
+        easeFactor: 2.5,
+        dueDate: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
+        lastReviewedAt: yesterdayIso,
+        state: 'REVIEW',
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'card_07',
+        deckId: 'deck_02',
+        userId,
+        front: 'What can you guarantee about the eigenvalues and eigenvectors of a real **symmetric** matrix $A$ ($A = A^T$)?',
+        back: 'By the **Spectral Theorem**:\n1. All eigenvalues of $A$ are real numbers.\n2. Eigenvectors corresponding to distinct eigenvalues are mutually orthogonal.\n3. $A$ is orthogonally diagonalizable: $A = Q D Q^T$ where $Q$ is an orthogonal matrix ($Q^T = Q^{-1}$).',
+        format: 'BASIC',
+        interval: 0,
+        repetitions: 0,
+        easeFactor: 2.5,
+        dueDate: todayIso,
+        lastReviewedAt: null,
+        state: 'NEW',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'card_08',
+        deckId: 'deck_02',
+        userId,
+        front: 'Using MathJax delimiters \\( \\lambda \\), define the characteristic equation of matrix \\( A \\).',
+        back: 'The characteristic polynomial equation is defined as:\n\\[ \\det(A - \\lambda I) = 0 \\]\n\nRoots \\( \\lambda_1, \\dots, \\lambda_n \\) are the eigenvalues of \\( A \\).\n\n*Anki MathJax format verified.*',
+        format: 'BASIC',
+        interval: 1,
+        repetitions: 1,
+        easeFactor: 2.5,
+        dueDate: todayIso,
+        lastReviewedAt: yesterdayIso,
+        state: 'REVIEW',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    );
+  }
 
   dbInstance.save();
   console.log('StudyOS seed data successfully written.');

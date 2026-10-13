@@ -73,12 +73,17 @@ export const AcademicsView: React.FC = () => {
   };
 
   const loadSyllabus = async (subId: string) => {
+    if (!subId) {
+      setSyllabusData(null);
+      return;
+    }
     try {
       setSyllabusLoading(true);
       const data = await api.academics.getSyllabus(subId);
       setSyllabusData(data);
     } catch (err) {
       console.error('Failed to load syllabus:', err);
+      setSyllabusData(null);
     } finally {
       setSyllabusLoading(false);
     }
@@ -89,6 +94,7 @@ export const AcademicsView: React.FC = () => {
   }, []);
 
   const handleSelectSubject = (id: string) => {
+    if (!id) return;
     setSelectedSubjectId(id);
     loadSyllabus(id);
   };
@@ -109,8 +115,26 @@ export const AcademicsView: React.FC = () => {
 
   const handleCreateSubject = async (e: React.FormEvent) => {
     e.preventDefault();
-    const activeSem = semesters.find(s => s.isActive) || semesters[0];
-    if (!activeSem || !newSubName.trim() || !newSubCode.trim()) return;
+    if (!newSubName.trim() || !newSubCode.trim()) return;
+
+    let activeSem = semesters.find(s => s.isActive) || semesters[0];
+    if (!activeSem) {
+      try {
+        const now = new Date();
+        const fourMonthsLater = new Date(Date.now() + 120 * 86400000);
+        const newSem = await api.academics.createSemester({
+          name: 'Current Term',
+          startDate: now.toISOString(),
+          endDate: fourMonthsLater.toISOString(),
+          isActive: true,
+        });
+        activeSem = newSem.semester;
+        setSemesters([newSem.semester]);
+      } catch (err) {
+        console.error('Failed to auto-create semester:', err);
+      }
+    }
+    if (!activeSem) return;
 
     try {
       const res = await api.academics.createSubject({

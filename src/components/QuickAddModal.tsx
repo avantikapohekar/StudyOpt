@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, CheckSquare, Calendar, FileText, Plus } from 'lucide-react';
 import { api } from '../lib/api';
 import { Subject } from '../types';
+import { normalizeTags } from '../lib/tagUtils';
 
 interface QuickAddModalProps {
   isOpen: boolean;
@@ -38,12 +39,17 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
 
   useEffect(() => {
     if (isOpen) {
-      api.academics.getSubjects().then(res => {
-        setSubjects(res.subjects);
-        if (res.subjects.length > 0 && !subjectId) {
-          setSubjectId(res.subjects[0].id);
-        }
-      });
+      api.academics.getSubjects()
+        .then(res => {
+          setSubjects(res.subjects);
+          if (res.subjects.length > 0 && !subjectId) {
+            setSubjectId(res.subjects[0].id);
+          }
+        })
+        .catch(err => {
+          console.warn('Failed to fetch subjects in QuickAddModal:', err);
+          setSubjects([]);
+        });
       // Set sensible default times
       const now = new Date();
       const oneHourLater = new Date(now.getTime() + 60 * 60000);
@@ -80,7 +86,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
           location: location || null,
         });
       } else if (itemType === 'note') {
-        const tagList = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
+        const tagList = normalizeTags(tagsInput);
         await api.notes.createNote({
           title,
           content: noteContent,

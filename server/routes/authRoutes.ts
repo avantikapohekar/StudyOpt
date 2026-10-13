@@ -33,6 +33,22 @@ authRouter.post('/register', (req: Request, res: Response) => {
   };
 
   dbInstance.db.users.push(newUser);
+
+  // Auto-create initial active semester for new user
+  const now = new Date();
+  const semesterId = `sem_${Date.now()}`;
+  const fourMonthsLater = new Date(Date.now() + 120 * 86400000);
+  dbInstance.db.semesters.push({
+    id: semesterId,
+    userId,
+    name: 'Fall Semester 2026',
+    startDate: now.toISOString(),
+    endDate: fourMonthsLater.toISOString(),
+    isActive: true,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  });
+
   dbInstance.save();
 
   const token = signToken(newUser);

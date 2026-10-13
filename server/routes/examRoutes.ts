@@ -58,13 +58,23 @@ examRouter.post('/exams', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Validation Error', message: 'Subject, title, and start time are required' });
   }
 
-  const subject = dbInstance.db.subjects.find(s => s.id === subjectId);
-  if (!subject) return res.status(404).json({ error: 'Subject not found' });
+  let subject = dbInstance.db.subjects.find(s => s.id === subjectId);
+  if (!subject) {
+    const userSemesters = dbInstance.db.semesters.filter(s => s.userId === userId).map(s => s.id);
+    const userSubjects = dbInstance.db.subjects.filter(s => userSemesters.includes(s.semesterId));
+    if (userSubjects.length > 0) {
+      subject = userSubjects[0];
+    } else {
+      return res.status(404).json({ error: 'Subject not found', message: 'Please create a course/subject first.' });
+    }
+  }
+
+  const finalSubjectId = subject.id;
 
   const newExam = {
     id: `exam_${Date.now()}`,
     userId,
-    subjectId,
+    subjectId: finalSubjectId,
     title: title.trim(),
     startsAt: new Date(startsAt).toISOString(),
     location: location ? location.trim() : null,
