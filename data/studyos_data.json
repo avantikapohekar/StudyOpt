@@ -12,6 +12,19 @@
       "onboardingCompleted": true,
       "createdAt": "2026-09-13T19:07:14.808Z",
       "updatedAt": "2026-10-13T19:07:14.697Z"
+    },
+    {
+      "id": "usr_1792023666353_277il",
+      "email": "student@stanford.edu",
+      "name": "Demo Student",
+      "passwordHash": "$2b$10$9ECGrucNFTCQAXMi/RI7kuf7bvLsYuw5gNQrUOeugZk8Eu1.lzSZy",
+      "college": "",
+      "targetDailyMinutes": 120,
+      "theme": "dark",
+      "timezone": "UTC",
+      "onboardingCompleted": false,
+      "createdAt": "2026-10-15T00:21:06.472Z",
+      "updatedAt": "2026-10-15T00:21:06.472Z"
     }
   ],
   "semesters": [
@@ -24,6 +37,16 @@
       "isActive": true,
       "createdAt": "2026-09-13T19:07:14.809Z",
       "updatedAt": "2026-10-13T19:07:14.697Z"
+    },
+    {
+      "id": "sem_1792023666472",
+      "userId": "usr_1792023666353_277il",
+      "name": "Fall Semester 2026",
+      "startDate": "2026-10-15T00:21:06.472Z",
+      "endDate": "2027-02-12T00:21:06.472Z",
+      "isActive": true,
+      "createdAt": "2026-10-15T00:21:06.472Z",
+      "updatedAt": "2026-10-15T00:21:06.472Z"
     }
   ],
   "subjects": [
@@ -1444,5 +1467,7 @@
       "easeFactor": 2.5,
       "reviewedAt": "2026-10-13T19:17:47.501Z"
     }
-  ]
+  ],
+  "googleDriveConnections": [],
+  "resourceLinks": []
 }

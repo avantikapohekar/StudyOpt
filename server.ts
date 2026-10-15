@@ -15,6 +15,9 @@ import { dashboardRouter } from './server/routes/dashboardRoutes.js';
 import { resourceRouter } from './server/routes/resourceRoutes.js';
 import { flashcardRouter } from './server/routes/flashcardRoutes.js';
 import { integrationRouter } from './server/routes/integrationRoutes.js';
+import { checkDatabaseHealth } from './server/prisma.js';
+import { initializePrismaSync } from './server/prismaSync.js';
+import { dbInstance } from './server/db.js';
 
 dotenv.config();
 
@@ -32,14 +35,28 @@ app.use(express.urlencoded({ extended: true }));
 // Seed sample data if database is empty
 seedInitialDataIfNeeded();
 
-// Health check endpoint
-app.get('/api/health', (_req: Request, res: Response) => {
+// Initialize Prisma MySQL database synchronization
+initializePrismaSync(dbInstance.db).catch(err => {
+  console.warn('Prisma initialization status:', err.message);
+});
+
+// Comprehensive Health check endpoint
+app.get('/api/health', async (_req: Request, res: Response) => {
+  const dbHealth = await checkDatabaseHealth();
   return res.json({
     status: 'ok',
     version: '1.0.0',
     app: 'StudyOS',
+    database: dbHealth,
     timestamp: new Date().toISOString(),
   });
+});
+
+// Dedicated Database Health check endpoint
+app.get('/api/v1/health/db', async (_req: Request, res: Response) => {
+  const dbHealth = await checkDatabaseHealth();
+  const statusCode = dbHealth.connected ? 200 : 503;
+  return res.status(statusCode).json(dbHealth);
 });
 
 // Mount REST API routers under /api/v1

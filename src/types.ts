@@ -426,6 +426,7 @@ export interface GoogleDriveFile {
   resourceType: ResourceType;
   owners?: Array<{ displayName?: string; emailAddress?: string }>;
   shared?: boolean;
+  isLinked?: boolean;
 }
 
 export interface ResourceLink {

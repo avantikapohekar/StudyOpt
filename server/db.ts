@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { persistToMySQL, getMySQLConnectionStatus } from './prismaSync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -380,7 +381,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 class DatabaseEngine {
-  private data: StudyOSDatabaseSchema;
+  public data: StudyOSDatabaseSchema;
 
   constructor() {
     this.data = this.loadData();
@@ -434,19 +435,97 @@ class DatabaseEngine {
     };
   }
 
+  private syncTimeout: NodeJS.Timeout | null = null;
+
   public save() {
     try {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
       fs.writeFileSync(DATA_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
+
+      // Debounced background sync to MySQL when connection is active
+      if (this.syncTimeout) clearTimeout(this.syncTimeout);
+      this.syncTimeout = setTimeout(() => {
+        this.syncToMySQL();
+      }, 500);
     } catch (err) {
       console.error('Failed to write StudyOS database:', err);
     }
   }
 
+  public async syncToMySQL() {
+    if (!getMySQLConnectionStatus()) return;
+    try {
+      // Sync users, semesters, subjects, tasks, notes, etc.
+      for (const u of this.data.users) {
+        await persistToMySQL('upsert', 'user', u);
+      }
+      for (const s of this.data.semesters) {
+        await persistToMySQL('upsert', 'semester', s);
+      }
+      for (const sub of this.data.subjects) {
+        await persistToMySQL('upsert', 'subject', sub);
+      }
+      for (const unit of this.data.units) {
+        await persistToMySQL('upsert', 'unit', unit);
+      }
+      for (const t of this.data.topics) {
+        await persistToMySQL('upsert', 'topic', t);
+      }
+      for (const task of this.data.tasks) {
+        await persistToMySQL('upsert', 'task', task);
+      }
+      for (const note of this.data.notes) {
+        await persistToMySQL('upsert', 'note', note);
+      }
+      for (const exam of this.data.exams) {
+        await persistToMySQL('upsert', 'exam', exam);
+      }
+      for (const habit of this.data.habits) {
+        await persistToMySQL('upsert', 'habit', habit);
+      }
+      for (const habitLog of this.data.habitLogs) {
+        await persistToMySQL('upsert', 'habitLog', habitLog);
+      }
+      for (const session of this.data.studySessions) {
+        await persistToMySQL('upsert', 'studySession', session);
+      }
+      for (const goal of this.data.goals) {
+        await persistToMySQL('upsert', 'goal', goal);
+      }
+      for (const event of this.data.timetableEvents) {
+        await persistToMySQL('upsert', 'timetableEvent', event);
+      }
+      for (const collection of this.data.collections) {
+        await persistToMySQL('upsert', 'collection', collection);
+      }
+      for (const resource of this.data.resources) {
+        await persistToMySQL('upsert', 'resource', resource);
+      }
+      for (const deck of this.data.flashcardDecks) {
+        await persistToMySQL('upsert', 'flashcardDeck', deck);
+      }
+      for (const card of this.data.flashcards) {
+        await persistToMySQL('upsert', 'flashcard', card);
+      }
+      for (const conn of this.data.googleDriveConnections) {
+        await persistToMySQL('upsert', 'googleDriveConnection', conn);
+      }
+      for (const link of this.data.resourceLinks) {
+        await persistToMySQL('upsert', 'resourceLink', link);
+      }
+    } catch (err: any) {
+      console.warn('Background sync to MySQL error:', err.message);
+    }
+  }
+
   public get db() {
     return this.data;
+  }
+
+  public saveData() {
+    this.save();
   }
 
   // --- Cascade helper for deleting a user ---

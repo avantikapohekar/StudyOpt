@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   Calendar,
@@ -14,8 +14,10 @@ import {
   ChevronRight,
   BookOpen,
   LogOut,
+  Database,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { DatabaseStatusModal } from './DatabaseStatusModal';
 
 export type NavSection =
   | 'dashboard'
@@ -62,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
 }) => {
   const { user, logout } = useAuth();
+  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
 
   const handleNavClick = (section: NavSection) => {
     onSelectSection(section);
@@ -164,17 +167,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             {!collapsed && (
-              <button
-                onClick={logout}
-                title="Log out"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 hover:text-red-600 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setIsDbModalOpen(true)}
+                  title="MySQL Database Status"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
+                >
+                  <Database className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={logout}
+                  title="Log out"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 hover:text-red-600 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </div>
             )}
           </div>
         </div>
       </aside>
+
+      <DatabaseStatusModal
+        isOpen={isDbModalOpen}
+        onClose={() => setIsDbModalOpen(false)}
+      />
     </>
   );
 };

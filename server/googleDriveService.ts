@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { dbInstance, GoogleDriveConnectionRecord } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,7 +22,7 @@ try {
   // Ignore
 }
 
-// Encryption settings
+// Encryption settings for refresh tokens: AES-256-GCM authenticated encryption
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const DEFAULT_KEY_SECRET = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY || 'studyos-secure-google-drive-encryption-key-2026';
 const DERIVED_KEY = crypto.scryptSync(DEFAULT_KEY_SECRET, 'studyos-drive-salt-unique', 32);
@@ -39,7 +40,7 @@ export function encryptToken(token: string): string {
 }
 
 /**
- * Decrypt sensitive refresh tokens using AES-256-GCM.
+ * Decrypt sensitive refresh tokens using AES-256-GCM authenticated encryption.
  */
 export function decryptToken(encryptedData: string): string | null {
   if (!encryptedData) return null;
@@ -61,7 +62,7 @@ export function decryptToken(encryptedData: string): string | null {
 }
 
 // In-memory token cache for active sessions (accessToken is transient, refresh token is encrypted at rest)
-interface CachedTokenSession {
+export interface CachedTokenSession {
   accessToken: string;
   expiresAt: number; // timestamp ms
   refreshToken?: string;
@@ -94,14 +95,14 @@ export function createOAuthState(userId: string): string {
   return state;
 }
 
-export function validateAndConsumeOAuthState(state: string, userId: string): boolean {
-  if (!state) return false;
+export function validateAndConsumeOAuthState(state: string, userId?: string): { valid: boolean; userId?: string } {
+  if (!state) return { valid: false };
   const record = stateStore.get(state);
-  if (!record) return false;
+  if (!record) return { valid: false };
   stateStore.delete(state);
-  if (record.userId !== userId) return false;
-  if (Date.now() - record.createdAt > 15 * 60 * 1000) return false;
-  return true;
+  if (Date.now() - record.createdAt > 15 * 60 * 1000) return { valid: false };
+  if (userId && record.userId !== userId) return { valid: false };
+  return { valid: true, userId: record.userId };
 }
 
 export function getGoogleOAuthClientConfig() {
@@ -121,6 +122,29 @@ export function setCachedToken(userId: string, data: CachedTokenSession) {
 
 export function clearCachedToken(userId: string) {
   tokenCache.delete(userId);
+}
+
+/**
+ * Generate standard Google OAuth 2.0 Web Server authorization URL.
+ */
+export function getGoogleOAuthUrl(userId: string): string {
+  const { clientId, redirectUri } = getGoogleOAuthClientConfig();
+  const state = createOAuthState(userId);
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: [
+      'https://www.googleapis.com/auth/drive.readonly',
+      'https://www.googleapis.com/auth/userinfo.email',
+      'https://www.googleapis.com/auth/userinfo.profile',
+    ].join(' '),
+    access_type: 'offline',
+    prompt: 'consent',
+    include_granted_scopes: 'true',
+    state,
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
 /**
@@ -212,11 +236,60 @@ export async function fetchGoogleUserInfo(accessToken: string) {
   const data = await response.json();
   return {
     sub: data.sub as string,
+    id: data.sub as string,
     email: data.email as string,
     emailVerified: Boolean(data.email_verified),
     name: (data.name as string) || '',
     picture: (data.picture as string) || '',
   };
+}
+
+/**
+ * Retrieves a valid, non-expired Google access token for a StudyOS user.
+ * Automatically refreshes using the encrypted refresh token if the current access token is expired.
+ */
+export async function getValidAccessTokenForUser(userId: string): Promise<string> {
+  // 1. Check in-memory token cache
+  const cached = tokenCache.get(userId);
+  if (cached && cached.expiresAt > Date.now() + 60000) {
+    return cached.accessToken;
+  }
+
+  // 2. Lookup connection in database
+  const connection = dbInstance.data.googleDriveConnections.find(
+    (c) => c.userId === userId && c.connectionStatus === 'CONNECTED'
+  );
+
+  if (!connection) {
+    throw new Error('Google Drive account is not connected');
+  }
+
+  // 3. If refresh token is available, refresh it
+  if (connection.encryptedRefreshToken) {
+    const rawRefreshToken = decryptToken(connection.encryptedRefreshToken);
+    if (rawRefreshToken) {
+      try {
+        const refreshed = await refreshAccessToken(rawRefreshToken);
+        tokenCache.set(userId, {
+          accessToken: refreshed.accessToken,
+          expiresAt: Date.now() + refreshed.expiresIn * 1000,
+          refreshToken: rawRefreshToken,
+          email: connection.googleEmail || '',
+          googleAccountId: connection.googleAccountId,
+        });
+        return refreshed.accessToken;
+      } catch (err: any) {
+        console.error('Failed to refresh token via refresh token:', err);
+      }
+    }
+  }
+
+  // 4. Fall back to cached token if not too stale
+  if (cached && cached.accessToken) {
+    return cached.accessToken;
+  }
+
+  throw new Error('Google Drive authorization expired or revoked. Please reconnect.');
 }
 
 /**
@@ -259,11 +332,9 @@ export async function listGoogleDriveFiles(accessToken: string, options: DriveFi
 
   // Folder navigation vs search
   if (search && search.trim()) {
-    // When searching by name, search across Drive
     const cleanSearch = search.replace(/'/g, "\\'");
     queryParts.push(`name contains '${cleanSearch}'`);
   } else if (folderId) {
-    // When browsing without search, stay within folder
     queryParts.push(`'${folderId}' in parents`);
   }
 

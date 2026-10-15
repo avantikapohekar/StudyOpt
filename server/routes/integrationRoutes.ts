@@ -8,621 +8,530 @@ import {
   ResourceLinkRecord,
 } from '../db.js';
 import { authenticateUser } from '../auth.js';
-import { normalizeTags, serializeTags } from '../tagUtils.js';
 import {
-  createOAuthState,
-  validateAndConsumeOAuthState,
-  getGoogleOAuthClientConfig,
+  getGoogleOAuthUrl,
   exchangeCodeForTokens,
-  refreshAccessToken,
   fetchGoogleUserInfo,
+  getValidAccessTokenForUser,
   listGoogleDriveFiles,
   getGoogleDriveFile,
-  revokeGoogleToken,
   encryptToken,
   decryptToken,
-  getCachedToken,
+  validateAndConsumeOAuthState,
   setCachedToken,
   clearCachedToken,
+  revokeGoogleToken,
 } from '../googleDriveService.js';
 
-export const integrationRouter = Router();
+const router = Router();
 
 // Map Google Drive MIME types to StudyOS ResourceType
-function mapDriveMimeToResourceType(mimeType: string): ResourceType {
-  if (mimeType === 'application/pdf') return 'DOCUMENT';
-  if (mimeType.includes('spreadsheet') || mimeType === 'text/csv') return 'SPREADSHEET';
-  if (mimeType.includes('presentation')) return 'DOCUMENT';
-  if (mimeType.includes('wordprocessingml') || mimeType === 'application/msword' || mimeType.includes('google-apps.document')) return 'DOCUMENT';
-  if (mimeType.startsWith('image/')) return 'IMAGE';
-  if (mimeType.startsWith('video/')) return 'VIDEO';
-  if (mimeType === 'text/markdown') return 'MARKDOWN';
-  return 'DRIVE_FILE';
+function mapMimeTypeToResourceType(mimeType?: string): ResourceType {
+  if (!mimeType) return 'OTHER';
+  if (mimeType.includes('pdf')) return 'PDF';
+  if (
+    mimeType.includes('word') ||
+    mimeType.includes('document') ||
+    mimeType === 'application/vnd.google-apps.document'
+  ) return 'DOCUMENT';
+  if (
+    mimeType.includes('presentation') ||
+    mimeType.includes('powerpoint') ||
+    mimeType === 'application/vnd.google-apps.presentation'
+  ) return 'SLIDES';
+  if (
+    mimeType.includes('sheet') ||
+    mimeType.includes('excel') ||
+    mimeType === 'application/vnd.google-apps.spreadsheet'
+  ) return 'SPREADSHEET';
+  if (mimeType.includes('image')) return 'IMAGE';
+  if (mimeType.includes('video')) return 'VIDEO';
+  if (mimeType.includes('audio')) return 'AUDIO';
+  return 'OTHER';
 }
 
 /**
- * Helper to get a valid Google access token for a user.
- * Tries in-memory cache, then attempts token refresh if refresh token is available.
+ * GET /api/v1/integrations/google-drive/status
+ * Returns connection status and details for the authenticated StudyOS user
  */
-async function getValidAccessToken(userId: string): Promise<string | null> {
-  // 1. Check in-memory cache
-  const cached = getCachedToken(userId);
-  if (cached && cached.expiresAt > Date.now() + 60000) {
-    return cached.accessToken;
-  }
-
-  // 2. Look up stored connection in database
-  const conn = dbInstance.db.googleDriveConnections.find(
-    c => c.userId === userId && c.connectionStatus === 'CONNECTED'
-  );
-  if (!conn || !conn.encryptedRefreshToken) {
-    return null;
-  }
-
-  // 3. Decrypt refresh token
-  const refreshToken = decryptToken(conn.encryptedRefreshToken);
-  if (!refreshToken) {
-    return null;
-  }
-
-  // 4. Request new access token from Google
+router.get(['/integrations/google-drive/status', '/google-drive/status'], authenticateUser, async (req: Request, res: Response) => {
   try {
-    const refreshed = await refreshAccessToken(refreshToken);
-    setCachedToken(userId, {
-      accessToken: refreshed.accessToken,
-      expiresAt: Date.now() + refreshed.expiresIn * 1000,
-      refreshToken,
-      email: conn.googleEmail || '',
-      googleAccountId: conn.googleAccountId,
-    });
-    return refreshed.accessToken;
-  } catch (err) {
-    console.error('Failed to refresh Google token for user', userId, err);
-    // If refresh fails due to revocation, mark connection disconnected
-    conn.connectionStatus = 'DISCONNECTED';
-    conn.updatedAt = new Date().toISOString();
-    dbInstance.save();
-    return null;
-  }
-}
-
-// -------------------------------------------------------------
-// 1. GET /api/v1/integrations/google-drive/status
-// -------------------------------------------------------------
-integrationRouter.get('/integrations/google-drive/status', authenticateUser, async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const conn = dbInstance.db.googleDriveConnections.find(
-    c => c.userId === userId && c.connectionStatus === 'CONNECTED'
-  );
-
-  if (!conn) {
-    return res.json({
-      status: 'DISCONNECTED',
-      connection: null,
-    });
-  }
-
-  // Check if we have a valid token or can refresh
-  const activeToken = await getValidAccessToken(userId);
-  if (!activeToken && !conn.encryptedRefreshToken) {
-    // If token is missing and no refresh token, status is DISCONNECTED
-    conn.connectionStatus = 'DISCONNECTED';
-    conn.updatedAt = new Date().toISOString();
-    dbInstance.save();
-    return res.json({
-      status: 'DISCONNECTED',
-      connection: null,
-    });
-  }
-
-  let scopes: string[] = [];
-  try {
-    scopes = JSON.parse(conn.grantedScopes || '[]');
-  } catch {
-    scopes = ['https://www.googleapis.com/auth/drive.readonly'];
-  }
-
-  return res.json({
-    status: 'CONNECTED',
-    connection: {
-      id: conn.id,
-      email: conn.googleEmail,
-      googleAccountId: conn.googleAccountId,
-      connectedAt: conn.createdAt,
-      scopes,
-    },
-  });
-});
-
-// -------------------------------------------------------------
-// 2. GET /api/v1/integrations/google-drive/connect
-// Initiates Google OAuth 2.0 Web Server flow
-// -------------------------------------------------------------
-integrationRouter.get('/integrations/google-drive/connect', authenticateUser, (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const state = createOAuthState(userId);
-  const { clientId, redirectUri } = getGoogleOAuthClientConfig();
-
-  if (!clientId) {
-    return res.status(500).json({
-      error: 'Google OAuth client ID is not configured on the server.',
-      instructions: 'Please configure GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend environment variables.',
-    });
-  }
-
-  const scopes = [
-    'https://www.googleapis.com/auth/drive.readonly',
-    'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/userinfo.profile',
-  ].join(' ');
-
-  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  authUrl.searchParams.set('client_id', clientId);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('response_type', 'code');
-  authUrl.searchParams.set('scope', scopes);
-  authUrl.searchParams.set('access_type', 'offline');
-  authUrl.searchParams.set('prompt', 'consent');
-  authUrl.searchParams.set('state', state);
-
-  // If client requests JSON, return the authorization URL
-  if (req.query.format === 'json' || req.headers.accept?.includes('application/json')) {
-    return res.json({
-      authUrl: authUrl.toString(),
-      state,
-    });
-  }
-
-  // Otherwise redirect directly
-  return res.redirect(authUrl.toString());
-});
-
-// -------------------------------------------------------------
-// 3. GET /api/v1/integrations/google-drive/callback
-// Handles Google OAuth 2.0 callback
-// -------------------------------------------------------------
-integrationRouter.get('/integrations/google-drive/callback', async (req: Request, res: Response) => {
-  const { code, state, error: oauthError, error_description } = req.query;
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-
-  if (oauthError) {
-    const errorMsg = (error_description as string) || (oauthError as string) || 'Access was denied';
-    return res.redirect(`${frontendUrl}/?drive_result=error&message=${encodeURIComponent(errorMsg)}`);
-  }
-
-  if (!code || typeof code !== 'string' || !state || typeof state !== 'string') {
-    return res.redirect(`${frontendUrl}/?drive_result=error&message=${encodeURIComponent('Missing authorization code or state')}`);
-  }
-
-  // Find user by state
-  // Notice: validateAndConsumeOAuthState checks if state exists
-  // Since callback comes in a new browser tab/window without authorization header, we read the bound userId from the stateStore directly
-  const stateRecord = (validateAndConsumeOAuthState as any);
-  // Let's implement safe state lookup:
-  let userId: string | null = null;
-  // We can validate state by checking the global stateStore
-  try {
-    // Validate state
-    const { clientId, clientSecret, redirectUri } = getGoogleOAuthClientConfig();
-    const tokenRes = await exchangeCodeForTokens(code, redirectUri);
-    const userInfo = await fetchGoogleUserInfo(tokenRes.accessToken);
-
-    // If state belongs to a known user, bind to that user, or bind to user with matching email
-    let targetUser = dbInstance.db.users.find(u => u.email.toLowerCase() === userInfo.email.toLowerCase());
-    if (!targetUser) {
-      targetUser = dbInstance.db.users[0]; // Primary active user in single/demo profile
-    }
-
-    if (!targetUser) {
-      return res.redirect(`${frontendUrl}/?drive_result=error&message=${encodeURIComponent('No corresponding StudyOS user found')}`);
-    }
-
-    const assignedUserId = targetUser.id;
-
-    // Encrypt refresh token
-    const encryptedRefreshToken = tokenRes.refreshToken ? encryptToken(tokenRes.refreshToken) : null;
-
-    // Save or update GoogleDriveConnectionRecord
-    let connection = dbInstance.db.googleDriveConnections.find(
-      c => c.userId === assignedUserId
+    const user = req.user!;
+    const connection = dbInstance.data.googleDriveConnections.find(
+      (c) => c.userId === user.userId && c.connectionStatus === 'CONNECTED'
     );
 
-    const now = new Date().toISOString();
-    if (connection) {
-      connection.googleAccountId = userInfo.sub;
-      connection.googleEmail = userInfo.email;
-      if (encryptedRefreshToken) {
-        connection.encryptedRefreshToken = encryptedRefreshToken;
-      }
-      connection.grantedScopes = JSON.stringify(['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']);
-      connection.connectionStatus = 'CONNECTED';
-      connection.updatedAt = now;
-    } else {
-      connection = {
-        id: crypto.randomUUID(),
-        userId: assignedUserId,
-        googleAccountId: userInfo.sub,
-        googleEmail: userInfo.email,
-        encryptedRefreshToken,
-        grantedScopes: JSON.stringify(['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']),
-        connectionStatus: 'CONNECTED',
-        createdAt: now,
-        updatedAt: now,
-      };
-      dbInstance.db.googleDriveConnections.push(connection);
-    }
-
-    // Cache the access token
-    setCachedToken(assignedUserId, {
-      accessToken: tokenRes.accessToken,
-      expiresAt: Date.now() + tokenRes.expiresIn * 1000,
-      refreshToken: tokenRes.refreshToken,
-      email: userInfo.email,
-      googleAccountId: userInfo.sub,
-    });
-
-    dbInstance.save();
-
-    return res.redirect(`${frontendUrl}/?drive_result=success&email=${encodeURIComponent(userInfo.email)}`);
-  } catch (err: any) {
-    console.error('Google OAuth callback error:', err);
-    return res.redirect(`${frontendUrl}/?drive_result=error&message=${encodeURIComponent(err.message || 'OAuth token exchange failed')}`);
-  }
-});
-
-// -------------------------------------------------------------
-// 4. POST /api/v1/integrations/google-drive/connect
-// Client-side authentication sync (e.g. from Google popup flow or token validation)
-// Verifies token with Google and persists verified connection in MySQL/database
-// -------------------------------------------------------------
-integrationRouter.post('/integrations/google-drive/connect', authenticateUser, async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const { accessToken, refreshToken, accountEmail } = req.body;
-
-  if (!accessToken || typeof accessToken !== 'string') {
-    return res.status(400).json({
-      error: 'AccessTokenRequired',
-      message: 'A valid Google access token is required to establish connection.',
-    });
-  }
-
-  try {
-    // 1. Verify token with Google's UserInfo API
-    const userInfo = await fetchGoogleUserInfo(accessToken);
-    if (!userInfo || !userInfo.email) {
-      return res.status(401).json({
-        error: 'InvalidToken',
-        message: 'Could not verify Google account identity with Google API.',
+    if (!connection) {
+      return res.json({
+        connected: false,
+        status: 'DISCONNECTED',
+        connection: null,
+        accountEmail: null,
       });
     }
 
-    const now = new Date().toISOString();
-    const encryptedRefreshToken = refreshToken ? encryptToken(refreshToken) : null;
-
-    let connection = dbInstance.db.googleDriveConnections.find(c => c.userId === userId);
-    if (connection) {
-      connection.googleAccountId = userInfo.sub;
-      connection.googleEmail = userInfo.email;
-      if (encryptedRefreshToken) {
-        connection.encryptedRefreshToken = encryptedRefreshToken;
-      }
-      connection.grantedScopes = JSON.stringify(['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']);
-      connection.connectionStatus = 'CONNECTED';
-      connection.updatedAt = now;
-    } else {
-      connection = {
-        id: crypto.randomUUID(),
-        userId,
-        googleAccountId: userInfo.sub,
-        googleEmail: userInfo.email,
-        encryptedRefreshToken,
-        grantedScopes: JSON.stringify(['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']),
-        connectionStatus: 'CONNECTED',
-        createdAt: now,
-        updatedAt: now,
-      };
-      dbInstance.db.googleDriveConnections.push(connection);
-    }
-
-    // Cache the verified access token (valid for 1 hour)
-    setCachedToken(userId, {
-      accessToken,
-      expiresAt: Date.now() + 3600 * 1000,
-      refreshToken: refreshToken || undefined,
-      email: userInfo.email,
-      googleAccountId: userInfo.sub,
-    });
-
-    dbInstance.save();
+    const scopes = connection.grantedScopes ? connection.grantedScopes.split(' ') : [];
 
     return res.json({
+      connected: true,
       status: 'CONNECTED',
       connection: {
         id: connection.id,
-        email: userInfo.email,
-        googleAccountId: userInfo.sub,
+        email: connection.googleEmail || '',
+        googleAccountId: connection.googleAccountId,
         connectedAt: connection.createdAt,
-        scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+        scopes,
       },
-      message: 'Google Drive connected successfully.',
+      accountEmail: connection.googleEmail || null,
     });
-  } catch (err: any) {
-    console.error('Failed to verify and connect Google Drive:', err);
-    return res.status(401).json({
-      error: 'VerificationFailed',
-      message: err.message || 'Google account verification failed.',
-    });
+  } catch (error: any) {
+    console.error('Error fetching Google Drive status:', error);
+    return res.status(500).json({ error: 'Failed to retrieve connection status' });
   }
 });
 
-// -------------------------------------------------------------
-// 5. POST /api/v1/integrations/google-drive/disconnect
-// Disconnects and revokes Google Drive integration
-// -------------------------------------------------------------
-integrationRouter.post('/integrations/google-drive/disconnect', authenticateUser, async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const connection = dbInstance.db.googleDriveConnections.find(c => c.userId === userId);
+/**
+ * GET /api/v1/integrations/google-drive/connect
+ * Generates CSRF state and returns OAuth URL (for JSON callers) or redirects to Google's consent screen
+ */
+router.get(['/integrations/google-drive/connect', '/google-drive/connect'], authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const oauthUrl = getGoogleOAuthUrl(user.userId);
 
-  // Attempt token revocation if available
-  const cached = getCachedToken(userId);
-  if (cached?.accessToken) {
-    await revokeGoogleToken(cached.accessToken);
-  } else if (connection?.encryptedRefreshToken) {
-    const refreshToken = decryptToken(connection.encryptedRefreshToken);
-    if (refreshToken) {
-      await revokeGoogleToken(refreshToken);
+    // If caller requests JSON or includes format=json query parameter
+    if (req.headers.accept?.includes('application/json') || req.query.format === 'json') {
+      return res.json({
+        url: oauthUrl,
+        authUrl: oauthUrl,
+      });
     }
+
+    return res.redirect(oauthUrl);
+  } catch (error: any) {
+    console.error('Error initiating Google Drive connect:', error);
+    return res.status(500).json({ error: error.message || 'Failed to initialize Google Drive connection' });
   }
-
-  // Clear session cache
-  clearCachedToken(userId);
-
-  if (connection) {
-    connection.connectionStatus = 'DISCONNECTED';
-    connection.encryptedRefreshToken = null;
-    connection.updatedAt = new Date().toISOString();
-    dbInstance.save();
-  }
-
-  return res.json({
-    status: 'DISCONNECTED',
-    message: 'Google Drive account disconnected successfully.',
-  });
 });
 
-// -------------------------------------------------------------
-// 6. GET /api/v1/integrations/google-drive/files
-// Real Google Drive file browser using Drive v3 API
-// -------------------------------------------------------------
-integrationRouter.get('/integrations/google-drive/files', authenticateUser, async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const { search, folderId, mimeFilter, pageToken, pageSize } = req.query;
+/**
+ * POST /api/v1/integrations/google-drive/connect
+ * Synchronizes verified Google tokens from client-side Google Auth popup / credentials
+ */
+router.post(['/integrations/google-drive/connect', '/google-drive/connect'], authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const { accessToken, refreshToken, idToken } = req.body;
 
-  // Verify connection
-  const conn = dbInstance.db.googleDriveConnections.find(
-    c => c.userId === userId && c.connectionStatus === 'CONNECTED'
-  );
+    if (!accessToken) {
+      return res.status(400).json({ error: 'accessToken is required to establish Google Drive connection' });
+    }
 
-  if (!conn) {
-    return res.status(403).json({
-      error: 'NotConnected',
-      message: 'Please connect your Google Drive account first.',
-      status: 'DISCONNECTED',
+    // Verify token with Google identity endpoint
+    const googleProfile = await fetchGoogleUserInfo(accessToken);
+
+    const now = new Date().toISOString();
+    const existingIndex = dbInstance.data.googleDriveConnections.findIndex((c) => c.userId === user.userId);
+
+    let encryptedRefreshToken: string | null = null;
+    if (refreshToken) {
+      encryptedRefreshToken = encryptToken(refreshToken);
+    } else if (existingIndex >= 0 && dbInstance.data.googleDriveConnections[existingIndex].encryptedRefreshToken) {
+      encryptedRefreshToken = dbInstance.data.googleDriveConnections[existingIndex].encryptedRefreshToken;
+    }
+
+    const connectionRecord: GoogleDriveConnectionRecord = {
+      id: existingIndex >= 0 ? dbInstance.data.googleDriveConnections[existingIndex].id : crypto.randomUUID(),
+      userId: user.userId,
+      googleAccountId: googleProfile.sub || googleProfile.id || googleProfile.email,
+      googleEmail: googleProfile.email,
+      encryptedRefreshToken,
+      grantedScopes: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+      connectionStatus: 'CONNECTED',
+      createdAt: existingIndex >= 0 ? dbInstance.data.googleDriveConnections[existingIndex].createdAt : now,
+      updatedAt: now,
+    };
+
+    if (existingIndex >= 0) {
+      dbInstance.data.googleDriveConnections[existingIndex] = connectionRecord;
+    } else {
+      dbInstance.data.googleDriveConnections.push(connectionRecord);
+    }
+    dbInstance.saveData();
+
+    // Cache active session token in memory for instant API queries
+    setCachedToken(user.userId, {
+      accessToken,
+      expiresAt: Date.now() + 3500 * 1000,
+      refreshToken: refreshToken || undefined,
+      email: googleProfile.email,
+      googleAccountId: connectionRecord.googleAccountId,
     });
+
+    const scopes = connectionRecord.grantedScopes.split(' ');
+
+    return res.json({
+      status: 'CONNECTED',
+      connected: true,
+      message: 'Google Drive connected successfully',
+      connection: {
+        id: connectionRecord.id,
+        email: connectionRecord.googleEmail || '',
+        googleAccountId: connectionRecord.googleAccountId,
+        connectedAt: connectionRecord.createdAt,
+        scopes,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error in connectWithToken:', error);
+    return res.status(500).json({ error: error.message || 'Failed to authenticate Google Drive connection' });
+  }
+});
+
+/**
+ * GET /api/v1/integrations/google-drive/callback
+ * Handles Google OAuth redirect callback
+ */
+router.get(['/integrations/google-drive/callback', '/google-drive/callback'], async (req: Request, res: Response) => {
+  const { code, state, error, error_description } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || '';
+
+  if (error) {
+    const errorMsg = String(error_description || error);
+    return res.redirect(`${frontendUrl}/learning?drive_result=error&message=${encodeURIComponent(errorMsg)}&drive_error=${encodeURIComponent(errorMsg)}`);
   }
 
-  const accessToken = await getValidAccessToken(userId);
-  if (!accessToken) {
-    return res.status(401).json({
-      error: 'SessionExpired',
-      message: 'Your Google Drive session has expired or was revoked. Please reconnect.',
-      status: 'DISCONNECTED',
-    });
+  if (!code || !state || typeof code !== 'string' || typeof state !== 'string') {
+    return res.redirect(`${frontendUrl}/learning?drive_result=error&message=${encodeURIComponent('Missing authorization code or state parameter')}&drive_error=missing_params`);
   }
 
   try {
-    const result = await listGoogleDriveFiles(accessToken, {
-      search: typeof search === 'string' ? search : undefined,
-      folderId: typeof folderId === 'string' ? folderId : undefined,
-      mimeFilter: typeof mimeFilter === 'string' ? mimeFilter : 'all',
-      pageToken: typeof pageToken === 'string' ? pageToken : undefined,
-      pageSize: pageSize ? parseInt(String(pageSize), 10) : 20,
+    // Validate CSRF state
+    const stateCheck = validateAndConsumeOAuthState(state);
+    if (!stateCheck.valid || !stateCheck.userId) {
+      return res.redirect(`${frontendUrl}/learning?drive_result=error&message=${encodeURIComponent('Invalid or expired OAuth state')}&drive_error=invalid_state`);
+    }
+
+    const userId = stateCheck.userId;
+
+    // Exchange authorization code for tokens
+    const tokens = await exchangeCodeForTokens(code);
+
+    // Verify identity via Google
+    const googleProfile = await fetchGoogleUserInfo(tokens.accessToken);
+
+    // Encrypt refresh token
+    const encryptedRefreshToken = tokens.refreshToken ? encryptToken(tokens.refreshToken) : null;
+
+    const existingIndex = dbInstance.data.googleDriveConnections.findIndex((c) => c.userId === userId);
+    const now = new Date().toISOString();
+
+    const connectionRecord: GoogleDriveConnectionRecord = {
+      id: existingIndex >= 0 ? dbInstance.data.googleDriveConnections[existingIndex].id : crypto.randomUUID(),
+      userId,
+      googleAccountId: googleProfile.sub || googleProfile.id || googleProfile.email,
+      googleEmail: googleProfile.email,
+      encryptedRefreshToken: encryptedRefreshToken || (existingIndex >= 0 ? dbInstance.data.googleDriveConnections[existingIndex].encryptedRefreshToken : null),
+      grantedScopes: tokens.scope || 'https://www.googleapis.com/auth/drive.readonly',
+      connectionStatus: 'CONNECTED',
+      createdAt: existingIndex >= 0 ? dbInstance.data.googleDriveConnections[existingIndex].createdAt : now,
+      updatedAt: now,
+    };
+
+    if (existingIndex >= 0) {
+      dbInstance.data.googleDriveConnections[existingIndex] = connectionRecord;
+    } else {
+      dbInstance.data.googleDriveConnections.push(connectionRecord);
+    }
+    dbInstance.saveData();
+
+    // Cache active access token
+    setCachedToken(userId, {
+      accessToken: tokens.accessToken,
+      expiresAt: Date.now() + tokens.expiresIn * 1000,
+      refreshToken: tokens.refreshToken,
+      email: googleProfile.email,
+      googleAccountId: connectionRecord.googleAccountId,
     });
 
-    // Format files for frontend
-    const formattedFiles = result.files.map(f => ({
-      id: f.id,
-      name: f.name,
-      mimeType: f.mimeType,
-      size: f.size ? parseInt(f.size, 10) : 0,
-      webViewLink: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
-      webContentLink: f.webContentLink || null,
-      iconLink: f.iconLink || null,
-      thumbnailLink: f.thumbnailLink || null,
-      modifiedTime: f.modifiedTime || new Date().toISOString(),
-      createdTime: f.createdTime || new Date().toISOString(),
-      isFolder: f.mimeType === 'application/vnd.google-apps.folder',
-      resourceType: mapDriveMimeToResourceType(f.mimeType),
-      owners: f.owners || [],
-      shared: Boolean(f.shared),
+    return res.redirect(
+      `${frontendUrl}/learning?drive_result=success&email=${encodeURIComponent(googleProfile.email)}&drive_connected=true`
+    );
+  } catch (err: any) {
+    console.error('Error during Google OAuth callback:', err);
+    return res.redirect(
+      `${frontendUrl}/learning?drive_result=error&message=${encodeURIComponent(err.message || 'Authentication failed')}&drive_error=${encodeURIComponent(err.message || 'Authentication failed')}`
+    );
+  }
+});
+
+/**
+ * POST /api/v1/integrations/google-drive/disconnect
+ * Disconnects the user's Google Drive account and cleans up stored tokens
+ */
+router.post(['/integrations/google-drive/disconnect', '/google-drive/disconnect'], authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const connectionIndex = dbInstance.data.googleDriveConnections.findIndex((c) => c.userId === user.userId);
+
+    if (connectionIndex >= 0) {
+      const conn = dbInstance.data.googleDriveConnections[connectionIndex];
+      if (conn.encryptedRefreshToken) {
+        const rawToken = decryptToken(conn.encryptedRefreshToken);
+        if (rawToken) {
+          revokeGoogleToken(rawToken).catch(() => {});
+        }
+      }
+
+      conn.connectionStatus = 'DISCONNECTED';
+      conn.encryptedRefreshToken = null;
+      conn.updatedAt = new Date().toISOString();
+      dbInstance.saveData();
+    }
+
+    clearCachedToken(user.userId);
+
+    return res.json({
+      status: 'DISCONNECTED',
+      connected: false,
+      success: true,
+      message: 'Google Drive disconnected successfully',
+    });
+  } catch (error: any) {
+    console.error('Error disconnecting Google Drive:', error);
+    return res.status(500).json({ error: 'Failed to disconnect Google Drive' });
+  }
+});
+
+/**
+ * GET /api/v1/integrations/google-drive/files
+ * Lists files from Google Drive API with folder navigation, query search, pagination, and mimeType filtering
+ */
+router.get(['/integrations/google-drive/files', '/google-drive/files'], authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const accessToken = await getValidAccessTokenForUser(user.userId);
+
+    const {
+      folderId,
+      search,
+      q,
+      mimeFilter,
+      filter,
+      pageToken,
+      pageSize,
+    } = req.query;
+
+    const searchTerm = (search as string) || (q as string) || undefined;
+    const filterTerm = (mimeFilter as string) || (filter as string) || 'all';
+    const folder = (folderId as string) || 'root';
+
+    const result = await listGoogleDriveFiles(accessToken, {
+      folderId: folder,
+      search: searchTerm,
+      mimeFilter: filterTerm,
+      pageToken: pageToken ? String(pageToken) : undefined,
+      pageSize: pageSize ? parseInt(String(pageSize), 10) : 25,
+    });
+
+    // Tag each file with isLinked status if already linked by the user
+    const linkedDriveFileIds = new Set(
+      dbInstance.data.resourceLinks
+        .filter((rl) => rl.userId === user.userId && rl.provider === 'GOOGLE_DRIVE')
+        .map((rl) => rl.externalFileId)
+    );
+
+    const files = result.files.map((file) => ({
+      ...file,
+      isLinked: linkedDriveFileIds.has(file.id),
     }));
 
     return res.json({
-      files: formattedFiles,
+      files,
       nextPageToken: result.nextPageToken,
     });
-  } catch (err: any) {
-    console.error('Google Drive files.list error:', err);
-    if (err.message === 'UNAUTHORIZED_TOKEN') {
+  } catch (error: any) {
+    console.error('Error listing Google Drive files:', error);
+    if (
+      error.message === 'UNAUTHORIZED_TOKEN' ||
+      error.message?.includes('expired') ||
+      error.message?.includes('revoked')
+    ) {
+      // Mark connection disconnected
+      const conn = dbInstance.data.googleDriveConnections.find((c) => c.userId === req.user!.userId);
+      if (conn) {
+        conn.connectionStatus = 'DISCONNECTED';
+        dbInstance.saveData();
+      }
       return res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Google authorization was revoked or expired. Please reconnect.',
-        status: 'DISCONNECTED',
+        error: 'Google Drive authorization expired or revoked. Please reconnect.',
+        code: 'AUTH_EXPIRED',
       });
     }
-    return res.status(500).json({
-      error: 'DriveApiError',
-      message: err.message || 'Failed to fetch files from Google Drive.',
-    });
+    return res.status(500).json({ error: error.message || 'Failed to list Google Drive files' });
   }
 });
 
-// -------------------------------------------------------------
-// 7. POST /api/v1/integrations/google-drive/import
-// Links a real Drive file to StudyOS Resources and ResourceLinks
-// -------------------------------------------------------------
-integrationRouter.post('/integrations/google-drive/import', authenticateUser, async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const { driveFileId, title, subjectId, topicId, collectionId, tags, description } = req.body;
-
-  if (!driveFileId || typeof driveFileId !== 'string') {
-    return res.status(400).json({
-      error: 'MissingField',
-      message: 'driveFileId is required to link a resource.',
-    });
-  }
-
-  const accessToken = await getValidAccessToken(userId);
-  if (!accessToken) {
-    return res.status(401).json({
-      error: 'SessionExpired',
-      message: 'Please connect Google Drive before linking resources.',
-    });
-  }
-
+/**
+ * POST /api/v1/integrations/google-drive/import
+ * Links a Drive file to StudyOS (creates a Resource & ResourceLink)
+ */
+router.post(['/integrations/google-drive/import', '/google-drive/import'], authenticateUser, async (req: Request, res: Response) => {
   try {
-    // 1. Fetch real file metadata from Google Drive API
-    const driveFile = await getGoogleDriveFile(accessToken, driveFileId);
+    const user = req.user!;
+    const fileId = req.body.fileId || req.body.driveFileId;
 
-    const resourceTitle = (title && title.trim()) || driveFile.name;
-    const webViewLink = driveFile.webViewLink || `https://drive.google.com/file/d/${driveFile.id}/view`;
-    const mimeType = driveFile.mimeType;
-    const fileSize = driveFile.size ? parseInt(driveFile.size, 10) : 0;
-    const resourceType = mapDriveMimeToResourceType(mimeType);
-    const ownerName = driveFile.owners?.[0]?.displayName || driveFile.owners?.[0]?.emailAddress || 'Drive Owner';
+    if (!fileId) {
+      return res.status(400).json({ error: 'fileId or driveFileId is required' });
+    }
 
+    const accessToken = await getValidAccessTokenForUser(user.userId);
+    const fileMetadata = await getGoogleDriveFile(accessToken, fileId);
+
+    const {
+      subjectId,
+      topicId,
+      collectionId,
+      tags,
+      description,
+      title,
+    } = req.body;
+
+    const resourceType = mapMimeTypeToResourceType(fileMetadata.mimeType);
     const now = new Date().toISOString();
-    const tagList = tags && normalizeTags(tags).length > 0 ? normalizeTags(tags) : ['Google Drive'];
 
-    // 2. Create StudyOS ResourceRecord
-    const newResource: ResourceRecord = {
-      id: crypto.randomUUID(),
-      userId,
+    const resourceTitle = title?.trim() || fileMetadata.name || 'Untitled Google Drive File';
+
+    // Check if resource already linked
+    let existingLink = dbInstance.data.resourceLinks.find(
+      (rl) => rl.userId === user.userId && rl.externalFileId === fileId && rl.provider === 'GOOGLE_DRIVE'
+    );
+
+    const resourceId = crypto.randomUUID();
+    const linkId = existingLink ? existingLink.id : crypto.randomUUID();
+
+    const resourceRecord: ResourceRecord = {
+      id: resourceId,
+      userId: user.userId,
       subjectId: subjectId || null,
       topicId: topicId || null,
       collectionId: collectionId || null,
       type: resourceType,
       source: 'GOOGLE_DRIVE',
       title: resourceTitle,
-      description: description || `Linked from Google Drive: ${driveFile.name} (Owner: ${ownerName})`,
-      url: webViewLink,
+      description: description || null,
+      url: fileMetadata.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
       storageKey: null,
-      originalFilename: driveFile.name,
-      mimeType,
-      fileSize,
-      thumbnailUrl: driveFile.thumbnailLink || driveFile.iconLink || null,
-      tags: serializeTags(tagList),
-      metadata: JSON.stringify({
-        driveFileId,
-        mimeType,
-        owner: ownerName,
-        shared: Boolean(driveFile.shared),
-        linkedAt: now,
-      }),
+      originalFilename: fileMetadata.name || null,
+      fileSize: fileMetadata.size ? parseInt(fileMetadata.size, 10) : null,
+      mimeType: fileMetadata.mimeType || 'application/octet-stream',
+      thumbnailUrl: fileMetadata.thumbnailLink || null,
+      tags: tags ? (Array.isArray(tags) ? JSON.stringify(tags) : tags) : '["Google Drive"]',
       isPinned: false,
       isFavorite: false,
       lastAccessedAt: now,
+      metadata: JSON.stringify({
+        driveFileId: fileId,
+        driveOwners: fileMetadata.owners,
+        iconLink: fileMetadata.iconLink,
+        thumbnailLink: fileMetadata.thumbnailLink,
+        collectionId: collectionId || null,
+        provider: 'GOOGLE_DRIVE',
+        source: 'GOOGLE_DRIVE',
+        linkedAt: now,
+      }),
       createdAt: now,
       updatedAt: now,
     };
 
-    // 3. Create ResourceLinkRecord (explicit external link mapping)
-    const newResourceLink: ResourceLinkRecord = {
-      id: crypto.randomUUID(),
-      userId,
+    dbInstance.data.resources.push(resourceRecord);
+
+    const resourceLinkRecord: ResourceLinkRecord = {
+      id: linkId,
+      userId: user.userId,
       provider: 'GOOGLE_DRIVE',
-      externalFileId: driveFileId,
+      externalFileId: fileId,
       title: resourceTitle,
-      mimeType,
-      webUrl: webViewLink,
+      mimeType: fileMetadata.mimeType || null,
+      webUrl: fileMetadata.webViewLink || null,
       subjectId: subjectId || null,
       topicId: topicId || null,
       collectionId: collectionId || null,
-      tags: serializeTags(tagList),
+      tags: tags ? (Array.isArray(tags) ? JSON.stringify(tags) : tags) : '[]',
       description: description || null,
-      createdAt: now,
+      createdAt: existingLink ? existingLink.createdAt : now,
       updatedAt: now,
     };
 
-    dbInstance.db.resources.unshift(newResource);
-    dbInstance.db.resourceLinks.unshift(newResourceLink);
-    dbInstance.save();
+    if (existingLink) {
+      const idx = dbInstance.data.resourceLinks.findIndex((rl) => rl.id === existingLink!.id);
+      dbInstance.data.resourceLinks[idx] = resourceLinkRecord;
+    } else {
+      dbInstance.data.resourceLinks.push(resourceLinkRecord);
+    }
+
+    dbInstance.saveData();
 
     return res.status(201).json({
-      resource: {
-        ...newResource,
-        tagList,
-      },
-      resourceLink: newResourceLink,
-      message: 'Google Drive file successfully linked to StudyOS library.',
+      message: 'Google Drive file linked successfully',
+      resource: resourceRecord,
+      resourceLink: resourceLinkRecord,
     });
-  } catch (err: any) {
-    console.error('Failed to link Drive file:', err);
-    if (err.message === 'FILE_NOT_FOUND') {
-      return res.status(404).json({
-        error: 'FileNotFound',
-        message: 'The requested file could not be found or you do not have permission to access it.',
-      });
+  } catch (error: any) {
+    console.error('Error importing/linking Google Drive file:', error);
+    return res.status(500).json({ error: error.message || 'Failed to link Google Drive file' });
+  }
+});
+
+/**
+ * DELETE /api/v1/integrations/google-drive/resources/:id
+ * Removes the StudyOS reference to a Drive file without deleting the file from Google Drive
+ */
+router.delete(['/integrations/google-drive/resources/:id', '/google-drive/resources/:id'], authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const { id } = req.params;
+
+    const resourceIdx = dbInstance.data.resources.findIndex((r) => r.id === id && r.userId === user.userId);
+    const resourceLinkIdx = dbInstance.data.resourceLinks.findIndex((rl) => rl.id === id && rl.userId === user.userId);
+
+    let driveFileId: string | null = null;
+
+    if (resourceIdx >= 0) {
+      const resource = dbInstance.data.resources[resourceIdx];
+      if (resource.metadata) {
+        try {
+          const parsed = JSON.parse(resource.metadata);
+          driveFileId = parsed.driveFileId;
+        } catch {
+          // ignore
+        }
+      }
+      dbInstance.data.resources.splice(resourceIdx, 1);
     }
-    return res.status(500).json({
-      error: 'ImportFailed',
-      message: err.message || 'Failed to link Google Drive file.',
+
+    if (resourceLinkIdx >= 0) {
+      driveFileId = dbInstance.data.resourceLinks[resourceLinkIdx].externalFileId;
+      dbInstance.data.resourceLinks.splice(resourceLinkIdx, 1);
+    }
+
+    if (driveFileId) {
+      dbInstance.data.resourceLinks = dbInstance.data.resourceLinks.filter(
+        (rl) => !(rl.userId === user.userId && rl.externalFileId === driveFileId)
+      );
+    }
+
+    dbInstance.saveData();
+
+    return res.json({
+      success: true,
+      message: 'Google Drive resource link removed from StudyOS (file preserved in Google Drive)',
     });
+  } catch (error: any) {
+    console.error('Error removing Google Drive resource link:', error);
+    return res.status(500).json({ error: 'Failed to remove resource link' });
   }
 });
 
-// -------------------------------------------------------------
-// 8. GET /api/v1/integrations/google-drive/resources
-// Lists all StudyOS resources linked to Google Drive
-// -------------------------------------------------------------
-integrationRouter.get('/integrations/google-drive/resources', authenticateUser, (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const links = dbInstance.db.resourceLinks.filter(rl => rl.userId === userId && rl.provider === 'GOOGLE_DRIVE');
-  const resources = dbInstance.db.resources.filter(r => r.userId === userId && r.source === 'GOOGLE_DRIVE');
-
-  return res.json({
-    resourceLinks: links,
-    resources: resources.map(r => ({
-      ...r,
-      tagList: normalizeTags(r.tags),
-    })),
-  });
-});
-
-// -------------------------------------------------------------
-// 9. DELETE /api/v1/integrations/google-drive/resources/:id
-// Removes the StudyOS reference without deleting the original Drive file
-// -------------------------------------------------------------
-integrationRouter.delete('/integrations/google-drive/resources/:id', authenticateUser, (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const { id } = req.params;
-
-  // Remove matching ResourceRecord if present
-  const resIndex = dbInstance.db.resources.findIndex(r => r.id === id && r.userId === userId);
-  if (resIndex !== -1) {
-    dbInstance.db.resources.splice(resIndex, 1);
-  }
-
-  // Remove matching ResourceLinkRecord if present
-  const linkIndex = dbInstance.db.resourceLinks.findIndex(l => (l.id === id || l.externalFileId === id) && l.userId === userId);
-  if (linkIndex !== -1) {
-    dbInstance.db.resourceLinks.splice(linkIndex, 1);
-  }
-
-  dbInstance.save();
-
-  return res.json({
-    success: true,
-    message: 'StudyOS reference removed without modifying your Google Drive file.',
-  });
-});
+export { router as integrationRouter };
+export default router;

@@ -713,5 +713,21 @@ export const api = {
         method: 'DELETE',
       }),
   },
+
+  // System & Database Diagnostics
+  system: {
+    getDatabaseHealth: () =>
+      request<{
+        connected: boolean;
+        engine: string;
+        database: string;
+        host: string;
+        version?: string;
+        latencyMs?: number;
+        tableCounts?: Record<string, number>;
+        message: string;
+        error?: string;
+      }>('/health/db'),
+  },
 };
 

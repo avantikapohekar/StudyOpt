@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
-    "@prisma/client": "^7.10.0",
+    "@prisma/client": "^5.22.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/multer": "^2.3.0",
     "@vitejs/plugin-react": "^6.1.1",
@@ -49,7 +49,7 @@
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
-    "prisma": "^8.0.0-rc.22",
+    "prisma": "^5.22.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"

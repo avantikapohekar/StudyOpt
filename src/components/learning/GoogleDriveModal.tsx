@@ -102,25 +102,6 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
       .catch(() => setAvailableTopics([]));
   }, [selectedSubjectId]);
 
-  // Check URL query parameters for OAuth redirect feedback
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const driveResult = urlParams.get('drive_result');
-    if (driveResult === 'success') {
-      const email = urlParams.get('email');
-      if (email) setAccountEmail(email);
-      setSuccessMsg('Successfully connected your Google Drive account!');
-      // Clean query params from URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (driveResult === 'error') {
-      const msg = urlParams.get('message') || 'Google authentication failed';
-      setError(msg);
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [isOpen]);
-
   // Load connection status
   const checkStatus = useCallback(async () => {
     setLoading(true);
@@ -175,6 +156,30 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
       setFilesLoading(false);
     }
   }, [status, currentFolderId, search, mimeFilter]);
+
+  // Check URL query parameters for OAuth redirect feedback
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const driveResult = urlParams.get('drive_result');
+    const driveConnected = urlParams.get('drive_connected');
+    const driveError = urlParams.get('drive_error') || urlParams.get('message');
+
+    if (driveResult === 'success' || driveConnected === 'true') {
+      const email = urlParams.get('email');
+      if (email) setAccountEmail(email);
+      setStatus('CONNECTED');
+      setSuccessMsg('Successfully connected your Google Drive account!');
+      // Clean query params from URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      loadFiles('root', '', 'all');
+    } else if (driveResult === 'error' || driveError) {
+      const msg = driveError || 'Google authentication failed';
+      setError(msg);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [isOpen, loadFiles]);
 
   // Initial load on modal open
   useEffect(() => {
@@ -837,6 +842,12 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
                               </button>
                             ) : (
                               <>
+                                {file.isLinked && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                    <Check className="w-3 h-3" />
+                                    <span>Linked</span>
+                                  </span>
+                                )}
                                 <a
                                   href={file.webViewLink}
                                   target="_blank"
@@ -849,10 +860,14 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleSelectFileToLink(file)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-colors"
+                                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl text-white shadow-xs transition-colors ${
+                                    file.isLinked
+                                      ? 'bg-neutral-700 hover:bg-neutral-800 dark:bg-neutral-700 dark:hover:bg-neutral-600'
+                                      : 'bg-indigo-600 hover:bg-indigo-700'
+                                  }`}
                                 >
                                   <Plus className="w-3.5 h-3.5" />
-                                  <span>Link to Hub</span>
+                                  <span>{file.isLinked ? 'Link Again' : 'Link to Hub'}</span>
                                 </button>
                               </>
                             )}
